@@ -7,6 +7,9 @@ namespace CyberWatch.Service.Models
 {
     public class EventoArchivos
     {
-        
+        public string NombreProceso { get; set; }
+        public string RutaArchivo { get; set; }
+        public DateTime FechaHora { get; set; }
+        public TipoEvento TipoEvento { get; set; }
     }
 }
