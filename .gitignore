@@ -1,0 +1,39 @@
+# Build output
+bin/
+obj/
+
+# Publish artifacts
+publish/
+publish_output/
+
+# Node.js (not needed in .NET projects)
+node_modules/
+npm-debug.log*
+
+# Secrets / credentials - NEVER commit these
+auth/
+*.pfx
+*.p12
+*serviceAccountKey*
+*credentials*.json
+.env
+.env.*
+
+# Temporary dumps
+firebase_dump.json
+firebase_dump.md
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# .NET
+*.pdb
+
+# Project specific
+CyberWatch.Dashboard/

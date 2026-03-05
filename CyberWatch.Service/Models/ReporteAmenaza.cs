@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
+using CyberWatch.Service.Models;
+using CyberWatch.Service.Config;
+
 namespace CyberWatch.Service.Models
 {
     public class ReporteAmenaza
@@ -16,6 +19,10 @@ namespace CyberWatch.Service.Models
         public ReporteAmenaza(string nombreProceso, bool escriturasSospechosas, bool renombradosSospechosas, bool extensionSospechosa)
         {
             NombreProceso = nombreProceso;
+            FechaHora = DateTime.Now;
+            EscriturasSospechosas = escriturasSospechosas;
+            RenombradosSospechosas = renombradosSospechosas;
+            ExtensionSospechosa = extensionSospechosa;
         }
     }
 }

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\Usr\\\\Documents\\\\CyberWatch''; dotnet build CyberWatch.Service/CyberWatch.Service.csproj -c Debug 2>&1 | Select-Object -Last 15\")",
+      "Bash(test -f .gitignore)",
+      "Bash(ls -lah CyberWatch.Service/package*.json)",
+      "Bash(dotnet build)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.Service)",
+      "Bash(ls -la /c/Users/Usr/Documents/CyberWatch/*.md)"
+    ]
+  }
+}
