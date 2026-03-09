@@ -10,11 +10,13 @@ namespace CyberWatch.Service
     {
         private readonly MonitorActividadArchivos _monitor;
         private readonly IFirebaseAlertService _firebaseAlertas;
+        private readonly AgentePipeServerService _pipeServer;
 
-        public ServicioCyberWatch(IFirebaseAlertService firebaseAlertas)
+        public ServicioCyberWatch(IFirebaseAlertService firebaseAlertas, AgentePipeServerService pipeServer)
         {
             _monitor = new MonitorActividadArchivos();
             _firebaseAlertas = firebaseAlertas;
+            _pipeServer = pipeServer;
         }
 
         protected override async Task ExecuteAsync(CancellationToken tokenCancelacion)
@@ -31,6 +33,7 @@ namespace CyberWatch.Service
                         GestorAlertas.Alertar(reporte);
                         await _firebaseAlertas.EnviarAlertaAsync(reporte, tokenCancelacion);
                         LiquidarProcesos.Liquidar(reporte);
+                        await _pipeServer.NotificarAmenazaAsync(reporte.NombreProceso, tokenCancelacion);
                     }
                 }
 

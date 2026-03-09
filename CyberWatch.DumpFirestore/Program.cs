@@ -112,13 +112,27 @@ if (db == null)
 
 Console.WriteLine("Leyendo Firestore (proyecto: {0})...", projectId);
 
+// Descubrir todas las colecciones raíz automáticamente y combinar con la lista configurada
+var todasLasColecciones = new HashSet<string>(colecciones, StringComparer.Ordinal);
+try
+{
+    await foreach (var col in db.ListRootCollectionsAsync())
+        todasLasColecciones.Add(col.Id);
+}
+catch (Exception ex)
+{
+    Console.WriteLine("Aviso: no se pudo listar colecciones automáticamente: " + ex.Message);
+}
+
+Console.WriteLine("Colecciones encontradas: " + string.Join(", ", todasLasColecciones));
+
 var estado = new Dictionary<string, object>
 {
     ["_exportado_en"] = DateTime.UtcNow.ToString("o"),
     ["_proyecto"] = projectId
 };
 
-foreach (var colId in colecciones)
+foreach (var colId in todasLasColecciones.OrderBy(x => x))
 {
     try
     {

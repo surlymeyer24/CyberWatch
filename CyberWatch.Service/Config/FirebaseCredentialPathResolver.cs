@@ -28,9 +28,18 @@ public class FirebaseCredentialPathResolver : IPostConfigureOptions<FirebaseSett
         var currentDir = Directory.GetCurrentDirectory();
         var baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
 
+        // En despliegue (ej. C:\Program Files\CyberWatch) el JSON suele estar junto al .exe
+        var sameDir = Path.Combine(baseDir, "serviceAccountKey.json");
+        if (File.Exists(sameDir))
+        {
+            options.CredentialPath = sameDir;
+            return;
+        }
+
         var candidates = new List<string>
         {
             Path.Combine(currentDir, "auth", "serviceAccountKey.json"),
+            Path.Combine(currentDir, "serviceAccountKey.json"),
             Path.Combine(currentDir, "..", "auth", "serviceAccountKey.json"),
             Path.Combine(currentDir, "..", "..", "auth", "serviceAccountKey.json")
         };

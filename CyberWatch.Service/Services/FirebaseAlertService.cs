@@ -14,11 +14,13 @@ public class FirebaseAlertService : IFirebaseAlertService
     private readonly FirebaseSettings _settings;
     private readonly ILogger<FirebaseAlertService> _logger;
     private FirestoreDb? _db;
+    private readonly string _machineId;
 
     public FirebaseAlertService(IOptions<FirebaseSettings> settings, ILogger<FirebaseAlertService> logger)
     {
         _settings = settings.Value;
         _logger = logger;
+        _machineId = LeerMachineId();
 
         if (_settings.IsAdminConfigured)
         {
@@ -32,7 +34,7 @@ public class FirebaseAlertService : IFirebaseAlertService
                     ProjectId = _settings.ProjectId
                 });
 
-                Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _settings.CredentialPath);
+                Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _settings.GetEffectiveCredentialPath());
                 _db = FirestoreDb.Create(_settings.ProjectId);
                 _logger.LogInformation("Firebase Admin inicializado. Proyecto: {ProjectId}. Alertas y registro de instancia activos.", _settings.ProjectId);
             }
@@ -61,7 +63,9 @@ public class FirebaseAlertService : IFirebaseAlertService
                 ["escriturasSospechosas"] = reporte.EscriturasSospechosas,
                 ["renombradosSospechosas"] = reporte.RenombradosSospechosas,
                 ["extensionSospechosa"] = reporte.ExtensionSospechosa,
-                ["origen"] = "CyberWatch.Service"
+                ["origen"] = "CyberWatch.Service",
+                ["machineId"] = _machineId,
+                ["hostname"] = Environment.MachineName
             };
 
             await col.AddAsync(doc, ct).ConfigureAwait(false);
@@ -71,5 +75,21 @@ public class FirebaseAlertService : IFirebaseAlertService
         {
             _logger.LogError(ex, "Error al enviar alerta a Firebase");
         }
+    }
+
+    private static string LeerMachineId()
+    {
+        try
+        {
+            var idFile = Path.Combine(AppContext.BaseDirectory, "cyberwatch_machine_id.txt");
+            if (File.Exists(idFile))
+            {
+                var id = File.ReadAllText(idFile).Trim();
+                if (!string.IsNullOrEmpty(id) && id.Length >= 8)
+                    return id;
+            }
+        }
+        catch { /* ignore */ }
+        return "";
     }
 }

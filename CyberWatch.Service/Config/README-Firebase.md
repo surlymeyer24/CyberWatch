@@ -61,6 +61,15 @@ Para que el servicio envíe las alertas a Firestore:
 
 Si `CredentialPath` está vacío o el archivo no existe, el servicio sigue funcionando y solo escribe en el log local (`cyberwatch.log`); no envía nada a Firebase.
 
+### Release (GitHub Actions)
+
+En los releases generados por el workflow (tag `v*.*.*`), el ZIP ya incluye:
+
+- **serviceAccountKey.json**: inyectado desde el secret `FIREBASE_SERVICE_ACCOUNT`.
+- **appsettings.json** con `Firebase:CredentialPath` = `"serviceAccountKey.json"` (ruta relativa al directorio del ejecutable).
+
+No hace falta configurar nada a mano en el paquete distribuido; solo asegurar que el secret esté configurado en el repo.
+
 ## Actualizar el servicio desde un release de GitHub (vía Firebase)
 
 El servicio puede comprobar en Firestore si hay una nueva versión publicada en GitHub y actualizarse solo.

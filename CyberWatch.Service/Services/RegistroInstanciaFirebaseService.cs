@@ -1,3 +1,4 @@
+using System.Management;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -58,7 +59,7 @@ public class RegistroInstanciaFirebaseService : BackgroundService
 
         try
         {
-            Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _firebase.CredentialPath);
+            Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _firebase.GetEffectiveCredentialPath());
             _db = FirestoreDb.Create(_firebase.ProjectId);
         }
         catch (Exception ex)
@@ -130,6 +131,9 @@ public class RegistroInstanciaFirebaseService : BackgroundService
             doc["ultima_geolocalizacion"] = Timestamp.FromDateTime(_ultimaGeolocalizacion);
         }
 
+        doc["bitlocker_activo"] = ObtenerBitLockerActivo();
+        doc["admins_locales"]   = ObtenerAdminsLocales();
+
         var refDoc = _db.Collection(_firebase.FirestoreColeccionInstancias).Document(_machineId);
         await refDoc.SetAsync(doc, SetOptions.MergeAll, ct).ConfigureAwait(false);
         _logger.LogDebug("Instancia registrada: {Hostname} ({Version})", hostname, _app.Version);
@@ -137,6 +141,31 @@ public class RegistroInstanciaFirebaseService : BackgroundService
 
     private static string ObtenerOCrearMachineId()
     {
+        // 1. Intentar UUID de hardware (estable entre reinstalaciones)
+        try
+        {
+            using var searcher = new ManagementObjectSearcher("SELECT UUID FROM Win32_ComputerSystemProduct");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                var uuid = obj["UUID"]?.ToString()?.Trim().ToLower();
+                if (!string.IsNullOrEmpty(uuid)
+                    && uuid != "ffffffff-ffff-ffff-ffff-ffffffffffff"
+                    && uuid != "00000000-0000-0000-0000-000000000000")
+                {
+                    // Guardar en archivo para que UserAgent y otros componentes lo lean
+                    try
+                    {
+                        var idFile = Path.Combine(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar), "cyberwatch_machine_id.txt");
+                        File.WriteAllText(idFile, uuid);
+                    }
+                    catch { /* ignore */ }
+                    return uuid;
+                }
+            }
+        }
+        catch { /* WMI no disponible, continuar con fallback */ }
+
+        // 2. Fallback: archivo con GUID aleatorio (comportamiento anterior)
         try
         {
             var appDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
@@ -196,6 +225,45 @@ public class RegistroInstanciaFirebaseService : BackgroundService
         }
         catch { /* ignore */ }
         return null;
+    }
+
+    private static bool ObtenerBitLockerActivo()
+    {
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                @"\\.\root\cimv2\Security\MicrosoftVolumeEncryption",
+                "SELECT ProtectionStatus FROM Win32_EncryptableVolume WHERE DriveLetter = 'C:'");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                // ProtectionStatus: 0=Off, 1=On, 2=Unknown
+                var status = Convert.ToInt32(obj["ProtectionStatus"]);
+                return status == 1;
+            }
+        }
+        catch { /* WMI no disponible o BitLocker no instalado */ }
+        return false;
+    }
+
+    private static List<string> ObtenerAdminsLocales()
+    {
+        var admins = new List<string>();
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT PartComponent FROM Win32_GroupUser WHERE GroupComponent=\"Win32_Group.Domain='" +
+                Environment.MachineName + "',Name='Administrators'\"");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                var part = obj["PartComponent"]?.ToString() ?? "";
+                // Formato: Win32_UserAccount.Domain="PC",Name="usuario"
+                var match = System.Text.RegularExpressions.Regex.Match(part, @"Name=""([^""]+)""");
+                if (match.Success)
+                    admins.Add(match.Groups[1].Value);
+            }
+        }
+        catch { /* WMI no disponible */ }
+        return admins;
     }
 
     private record GeolocalizacionResultado(double Lat, double Lon, string Ciudad, string Pais, string Isp);

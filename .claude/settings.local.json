@@ -7,7 +7,12 @@
       "Bash(dotnet build)",
       "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build)",
       "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.Service)",
-      "Bash(ls -la /c/Users/Usr/Documents/CyberWatch/*.md)"
+      "Bash(ls -la /c/Users/Usr/Documents/CyberWatch/*.md)",
+      "Bash(dotnet run --project CyberWatch.DumpFirestore)",
+      "Bash(\"C:/Program Files/dotnet/dotnet.exe\" run --project CyberWatch.DumpFirestore)",
+      "Bash(\"C:/Program Files/dotnet/dotnet.exe\" build CyberWatch.Dashboard)",
+      "Bash(\"C:/Program Files/dotnet/dotnet.exe\" build CyberWatch.Service)",
+      "Bash(grep -E \"\\\\.cs$|csproj\")"
     ]
   }
 }

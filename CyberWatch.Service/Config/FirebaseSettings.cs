@@ -23,21 +23,16 @@ public class FirebaseSettings
     public string? CredentialPath { get; set; }
 
     /// <summary>
+    /// Contenido JSON de la cuenta de servicio embebido directamente en la config (alternativa a CredentialPath).
+    /// Útil para distribuciones donde no se puede incluir el archivo físico.
+    /// Se escribe en un archivo temporal en tiempo de ejecución.
+    /// </summary>
+    public string? CredentialJson { get; set; }
+
+/// <summary>
     /// Nombre de la colección de Firestore donde se guardan las alertas. Por defecto: "alertas".
     /// </summary>
     public string FirestoreCollectionAlertas { get; set; } = "alertas";
-
-    /// <summary>
-    /// Ruta del documento en Firestore donde está la config de actualización (mismo doc que el agente).
-    /// Ej: "config/actualizaciones" → colección "config", documento "actualizaciones".
-    /// </summary>
-    public string FirestoreDocumentoActualizacion { get; set; } = "config/actualizaciones";
-
-    /// <summary>
-    /// Campo dentro del documento que tiene la config de CyberWatch (version + url), igual que "agente" para el otro servicio.
-    /// Ej: "cyberwatch" → se lee data.cyberwatch.version y data.cyberwatch.url
-    /// </summary>
-    public string FirestoreCampoActualizacion { get; set; } = "cyberwatch";
 
     /// <summary>
     /// Colección donde cada instancia de CyberWatch se registra (documento por máquina, para saber dónde está instalado).
@@ -50,5 +45,33 @@ public class FirebaseSettings
     /// </summary>
     public int IntervaloRegistroInstanciaMinutos { get; set; } = 5;
 
-    public bool IsAdminConfigured => !string.IsNullOrWhiteSpace(CredentialPath) && File.Exists(CredentialPath);
+    public bool IsAdminConfigured =>
+        (!string.IsNullOrWhiteSpace(CredentialPath) && File.Exists(CredentialPath)) ||
+        !string.IsNullOrWhiteSpace(CredentialJson);
+
+    /// <summary>
+    /// Devuelve la ruta efectiva al archivo de credencial.
+    /// Si se configuró CredentialJson, lo escribe en un archivo temporal y retorna esa ruta.
+    /// </summary>
+    public string? GetEffectiveCredentialPath()
+    {
+        // 1. Ruta absoluta o relativa al directorio del ejecutable
+        if (!string.IsNullOrWhiteSpace(CredentialPath))
+        {
+            var resolved = Path.IsPathRooted(CredentialPath)
+                ? CredentialPath
+                : Path.Combine(AppContext.BaseDirectory, CredentialPath);
+            if (File.Exists(resolved)) return resolved;
+        }
+
+        // 2. Contenido JSON embebido → archivo temporal
+        if (!string.IsNullOrWhiteSpace(CredentialJson))
+        {
+            var tmp = Path.Combine(Path.GetTempPath(), "cyberwatch_cred.json");
+            File.WriteAllText(tmp, CredentialJson);
+            return tmp;
+        }
+
+        return null;
+    }
 }

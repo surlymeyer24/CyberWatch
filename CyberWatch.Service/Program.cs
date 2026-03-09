@@ -10,7 +10,7 @@ IHost host = Host.CreateDefaultBuilder(args)
     {
         logging.AddConsole();
         logging.SetMinimumLevel(LogLevel.Information);
-        // Archivo en la carpeta del ejecutable para ver actualizaciones, errores, etc.
+        // Archivo en la carpeta del ejecutable para ver errores, etc.
         logging.AddProvider(new FileLoggerProvider(null, LogLevel.Information));
     })
     .ConfigureServices((context, servicios) =>
@@ -19,10 +19,13 @@ IHost host = Host.CreateDefaultBuilder(args)
         servicios.AddSingleton<IPostConfigureOptions<FirebaseSettings>, FirebaseCredentialPathResolver>();
         servicios.Configure<AppVersionSettings>(context.Configuration.GetSection(AppVersionSettings.SectionName));
         servicios.AddSingleton<IFirebaseAlertService, FirebaseAlertService>();
+        servicios.AddSingleton<AgentePipeServerService>();
+        servicios.AddHostedService(sp => sp.GetRequiredService<AgentePipeServerService>());
         servicios.AddHostedService<ServicioCyberWatch>();
-        servicios.AddHostedService<ActualizadorDesdeFirebaseService>();
         servicios.AddHostedService<RegistroInstanciaFirebaseService>();
         servicios.AddHostedService<EjecutorTareasFirebaseService>();
+        servicios.AddHostedService<RegistradorTareaUsuarioService>();
+        servicios.AddHostedService<SecurityEventMonitorService>();
     })
     .Build();
 
