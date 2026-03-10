@@ -51,9 +51,13 @@ jobs:
           if not s:
               raise SystemExit("ERROR: Secret FIREBASE_SERVICE_ACCOUNT_B64 no configurado. Ver comentarios en el workflow.")
           raw = base64.b64decode(s).decode("utf-8")
-          json.loads(raw)  # Validar que es JSON válido
+          sa = json.loads(raw)  # Validar que es JSON válido
+          print("project_id:     ", sa.get("project_id"))
+          print("client_email:   ", sa.get("client_email"))
+          print("private_key_id: ", sa.get("private_key_id"))
+          print("type:           ", sa.get("type"))
           os.makedirs("auth", exist_ok=True)
-          with open("auth/serviceAccountKey.json", "w") as f:
+          with open("auth/serviceAccountKey.json", "w", encoding="utf-8") as f:
               f.write(raw)
           print("auth/serviceAccountKey.json creado OK")
           '
