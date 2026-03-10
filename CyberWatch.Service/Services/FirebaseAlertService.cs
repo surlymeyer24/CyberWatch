@@ -34,8 +34,11 @@ public class FirebaseAlertService : IFirebaseAlertService
                     ProjectId = _settings.ProjectId
                 });
 
-                Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _settings.GetEffectiveCredentialPath());
-                _db = FirestoreDb.Create(_settings.ProjectId);
+                _db = new FirestoreDbBuilder
+                {
+                    ProjectId = _settings.ProjectId,
+                    CredentialsPath = _settings.GetEffectiveCredentialPath()
+                }.Build();
                 _logger.LogInformation("Firebase Admin inicializado. Proyecto: {ProjectId}. Alertas y registro de instancia activos.", _settings.ProjectId);
             }
             catch (Exception ex)

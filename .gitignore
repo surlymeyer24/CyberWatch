@@ -10,6 +10,9 @@ publish_output/
 node_modules/
 npm-debug.log*
 
+# Local dev overrides (machine-specific paths)
+appsettings.Development.json
+
 # Secrets / credentials - NEVER commit these
 auth/
 *.pfx
