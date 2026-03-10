@@ -51,8 +51,11 @@ public class EjecutorTareasFirebaseService : BackgroundService
         FirestoreDb db;
         try
         {
-            Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _firebase.GetEffectiveCredentialPath());
-            db = FirestoreDb.Create(_firebase.ProjectId);
+            db = new FirestoreDbBuilder
+            {
+                ProjectId = _firebase.ProjectId,
+                CredentialsPath = _firebase.GetEffectiveCredentialPath()
+            }.Build();
         }
         catch (Exception ex)
         {

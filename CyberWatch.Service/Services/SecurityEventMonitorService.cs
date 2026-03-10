@@ -51,10 +51,11 @@ public class SecurityEventMonitorService : BackgroundService
 
         try
         {
-            var credPath = _firebase.GetEffectiveCredentialPath();
-            if (!string.IsNullOrEmpty(credPath))
-                Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", credPath);
-            _db = FirestoreDb.Create(_firebase.ProjectId);
+            _db = new FirestoreDbBuilder
+            {
+                ProjectId = _firebase.ProjectId,
+                CredentialsPath = _firebase.GetEffectiveCredentialPath()
+            }.Build();
         }
         catch (Exception ex)
         {

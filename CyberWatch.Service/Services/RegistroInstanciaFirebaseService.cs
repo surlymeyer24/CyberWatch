@@ -59,8 +59,11 @@ public class RegistroInstanciaFirebaseService : BackgroundService
 
         try
         {
-            Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _firebase.GetEffectiveCredentialPath());
-            _db = FirestoreDb.Create(_firebase.ProjectId);
+            _db = new FirestoreDbBuilder
+            {
+                ProjectId = _firebase.ProjectId,
+                CredentialsPath = _firebase.GetEffectiveCredentialPath()
+            }.Build();
         }
         catch (Exception ex)
         {
