@@ -57,8 +57,10 @@ jobs:
           print("private_key_id: ", sa.get("private_key_id"))
           print("type:           ", sa.get("type"))
           os.makedirs("auth", exist_ok=True)
-          with open("auth/serviceAccountKey.json", "w", encoding="utf-8") as f:
-              f.write(raw)
+          # Escribir en modo binario para evitar conversion CRLF en Windows
+          clean = json.dumps(sa, ensure_ascii=False).encode("utf-8")
+          with open("auth/serviceAccountKey.json", "wb") as f:
+              f.write(clean)
           print("auth/serviceAccountKey.json creado OK")
           '
 
