@@ -28,6 +28,8 @@ concurrency:
 jobs:
   build-and-release:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -123,7 +125,7 @@ jobs:
           name: CyberWatch ${{ github.event.inputs.version }}
           files: CyberWatch-${{ github.event.inputs.version }}.zip
           generate_release_notes: true
-          replace_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
