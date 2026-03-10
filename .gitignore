@@ -5,6 +5,8 @@ obj/
 # Publish artifacts
 publish/
 publish_output/
+publish_output.zip
+CyberWatch.Service.zip
 
 # Node.js (not needed in .NET projects)
 node_modules/

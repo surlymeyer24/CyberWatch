@@ -135,33 +135,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Actualiza config/ciberseguridad en Firestore con la nueva versión y URL de descarga.
-      # El servicio puede leer estos campos para saber si hay una actualización disponible.
+  # Job separado en Ubuntu para evitar problemas de crypto en Windows
+  update-firestore:
+    runs-on: ubuntu-latest
+    needs: build-and-release
+    steps:
       - name: Update Firestore config/ciberseguridad
-        shell: bash
         env:
           VERSION: ${{ github.event.inputs.version }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          FIREBASE_SERVICE_ACCOUNT_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_B64 }}
         run: |
           pip install firebase-admin -q
           python - <<'PYEOF'
-          import os, json, firebase_admin
+          import os, base64, json, firebase_admin
           from firebase_admin import credentials, firestore
 
-          with open("auth/serviceAccountKey.json") as f:
-              sa = json.load(f)
+          s = os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64", "").strip().replace("\n","").replace("\r","").replace(" ","")
+          sa = json.loads(base64.b64decode(s).decode("utf-8"))
 
           version = os.environ.get("VERSION", "v1.0.0")
           repo    = os.environ.get("GITHUB_REPOSITORY", "")
-          zip_name = f"CyberWatch-{version}.zip"
-          url = f"https://github.com/{repo}/releases/download/{version}/{zip_name}"
+          url = f"https://github.com/{repo}/releases/download/{version}/CyberWatch-{version}.zip"
 
           cred = credentials.Certificate(sa)
           firebase_admin.initialize_app(cred)
           db = firestore.client()
           db.collection("config").document("ciberseguridad").set({
-              "version":       version.lstrip("v"),
-              "url_descarga":  url
+              "version":      version.lstrip("v"),
+              "url_descarga": url
           }, merge=True)
           print("Firestore actualizado →", url)
           PYEOF
