@@ -1,0 +1,159 @@
+# Secretos necesarios en GitHub → Settings → Secrets and variables → Actions:
+#
+#   FIREBASE_SERVICE_ACCOUNT_B64
+#     Base64 del serviceAccountKey.json (Firebase Console → Configuración → Cuentas de servicio).
+#     Generar con:
+#       python -c "import base64; print(base64.b64encode(open('auth/serviceAccountKey.json','rb').read()).decode())"
+#     O en PowerShell:
+#       [Convert]::ToBase64String([IO.File]::ReadAllBytes('auth\serviceAccountKey.json'))
+#
+# ADVERTENCIA DE SEGURIDAD:
+#   Las credenciales Firebase quedan embebidas en appsettings.json dentro del ZIP de release.
+#   Asegúrate de que la cuenta de servicio tenga permisos mínimos (solo escritura en Firestore/Storage).
+
+name: Build and Release CyberWatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión (ej. v2.1.0)'
+        required: true
+        default: 'v1.0.0'
+
+concurrency:
+  group: build-and-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Decode Firebase credentials
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_B64 }}
+        run: |
+          python -c '
+          import os, base64, json
+          s = os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64", "").strip().replace("\n","").replace("\r","").replace(" ","")
+          if not s:
+              raise SystemExit("ERROR: Secret FIREBASE_SERVICE_ACCOUNT_B64 no configurado. Ver comentarios en el workflow.")
+          raw = base64.b64decode(s).decode("utf-8")
+          json.loads(raw)  # Validar que es JSON válido
+          os.makedirs("auth", exist_ok=True)
+          with open("auth/serviceAccountKey.json", "w") as f:
+              f.write(raw)
+          print("auth/serviceAccountKey.json creado OK")
+          '
+
+      - name: Bump version in appsettings.json
+        shell: pwsh
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $version = $env:VERSION.TrimStart('v')
+          $path = "CyberWatch.Service/appsettings.json"
+          $json = Get-Content $path -Raw | ConvertFrom-Json
+          $json.CyberWatch.Version = $version
+          $json | ConvertTo-Json -Depth 10 | Set-Content $path -Encoding UTF8
+          Write-Host "Version actualizada a $version"
+
+      - name: Publish CyberWatch.Service
+        run: dotnet publish CyberWatch.Service/CyberWatch.Service.csproj -c Release -r win-x64 --self-contained true -o publish_output
+
+      - name: Publish CyberWatch.UserAgent
+        run: dotnet publish CyberWatch.UserAgent/CyberWatch.UserAgent.csproj -c Release -r win-x64 --self-contained true -o publish_useragent
+
+      # Mismo comportamiento que publish-local.ps1: copiar archivos del UserAgent al directorio
+      # del Service SIN sobrescribir los existentes (evita conflictos de versiones de DLLs).
+      # Se omite appsettings.json del UserAgent para que solo quede el del Service.
+      - name: Merge UserAgent into Service output
+        shell: pwsh
+        run: |
+          $src = (Resolve-Path "publish_useragent").Path
+          $dst = (Resolve-Path "publish_output").Path
+          Get-ChildItem -Path $src -Recurse | ForEach-Object {
+              $rel = $_.FullName.Substring($src.Length + 1)
+              if ($rel -eq "appsettings.json") { return }
+              $dest = Join-Path $dst $rel
+              if ($_.PSIsContainer) {
+                  if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
+              } else {
+                  if (-not (Test-Path $dest)) { Copy-Item $_.FullName -Destination $dest -Force }
+              }
+          }
+          Write-Host "Merge completado"
+
+      # Embeber las credenciales Firebase directamente en appsettings.json como CredentialJson.
+      # Esto evita distribuir el .json como archivo separado manteniendo el mismo comportamiento
+      # (GetEffectiveCredentialPath() lo escribe en un archivo temporal en tiempo de ejecución).
+      - name: Embed credentials in appsettings.json
+        shell: pwsh
+        run: |
+          $credJson = Get-Content "auth/serviceAccountKey.json" -Raw
+          $appsettings = "publish_output/appsettings.json"
+          $json = Get-Content $appsettings -Raw | ConvertFrom-Json
+          $json.Firebase.CredentialPath = ""
+          $json.Firebase.CredentialJson = $credJson
+          $json | ConvertTo-Json -Depth 10 | Set-Content $appsettings -Encoding UTF8
+          Write-Host "Credenciales embebidas en appsettings.json"
+
+      - name: Create release ZIP
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.inputs.version }}"
+          $zipName = "CyberWatch-$version.zip"
+          Compress-Archive -Path "publish_output/*" -DestinationPath $zipName
+          Write-Host "ZIP creado: $zipName"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: CyberWatch ${{ github.event.inputs.version }}
+          files: CyberWatch-${{ github.event.inputs.version }}.zip
+          generate_release_notes: true
+          replace_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Actualiza config/ciberseguridad en Firestore con la nueva versión y URL de descarga.
+      # El servicio puede leer estos campos para saber si hay una actualización disponible.
+      - name: Update Firestore config/ciberseguridad
+        shell: bash
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          pip install firebase-admin -q
+          python - <<'PYEOF'
+          import os, json, firebase_admin
+          from firebase_admin import credentials, firestore
+
+          with open("auth/serviceAccountKey.json") as f:
+              sa = json.load(f)
+
+          version = os.environ.get("VERSION", "v1.0.0")
+          repo    = os.environ.get("GITHUB_REPOSITORY", "")
+          zip_name = f"CyberWatch-{version}.zip"
+          url = f"https://github.com/{repo}/releases/download/{version}/{zip_name}"
+
+          cred = credentials.Certificate(sa)
+          firebase_admin.initialize_app(cred)
+          db = firestore.client()
+          db.collection("config").document("ciberseguridad").set({
+              "version":       version.lstrip("v"),
+              "url_descarga":  url
+          }, merge=True)
+          print("Firestore actualizado →", url)
+          PYEOF
