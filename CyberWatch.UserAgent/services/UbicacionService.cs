@@ -1,3 +1,4 @@
+using CyberWatch.Shared.Models;
 using Google.Cloud.Firestore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -69,16 +70,18 @@ public class UbicacionService : BackgroundService
                 var posicion = await geolocator.GetGeopositionAsync().AsTask(stoppingToken);
                 var coord = posicion.Coordinate;
 
-                var data = new Dictionary<string, object>
+                var instancia = new InstanciaMaquina
                 {
-                    ["lat_gps"] = coord.Point.Position.Latitude,
-                    ["lon_gps"] = coord.Point.Position.Longitude,
-                    ["precision_gps"] = coord.Accuracy,
-                    ["ultima_ubicacion_gps"] = Timestamp.FromDateTime(DateTime.UtcNow)
+                    LatGps            = coord.Point.Position.Latitude,
+                    LonGps            = coord.Point.Position.Longitude,
+                    PrecisionGps      = coord.Accuracy,
+                    UltimaUbicacionGps = Timestamp.FromDateTime(DateTime.UtcNow)
                 };
 
                 await db.Collection(coleccion).Document(machineId)
-                    .SetAsync(data, SetOptions.MergeAll, stoppingToken);
+                    .SetAsync(instancia, SetOptions.MergeFields(
+                        "lat_gps", "lon_gps", "precision_gps", "ultima_ubicacion_gps"
+                    ), stoppingToken);
 
                 _logger.LogDebug("Ubicación GPS actualizada: {Lat}, {Lon} (±{Acc}m)",
                     coord.Point.Position.Latitude, coord.Point.Position.Longitude, coord.Accuracy);

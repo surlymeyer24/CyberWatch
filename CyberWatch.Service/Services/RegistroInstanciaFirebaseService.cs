@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Text.Json;
 using CyberWatch.Service.Config;
+using CyberWatch.Shared.Models;
 using Google.Cloud.Firestore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -99,17 +100,30 @@ public class RegistroInstanciaFirebaseService : BackgroundService
         if (_db == null || string.IsNullOrEmpty(_machineId)) return;
 
         var hostname = ObtenerNombrePC(_machineId);
-        var ipLocal = ObtenerIpLocal();
+        var ipLocal  = ObtenerIpLocal();
 
-        var doc = new Dictionary<string, object>
+        var instancia = new InstanciaMaquina
         {
-            ["hostname"] = hostname,
-            ["version"] = _app.Version,
-            ["ultima_conexion"] = Timestamp.FromDateTime(DateTime.UtcNow),
-            ["servicio"] = _app.ServiceName
+            Hostname        = hostname,
+            Version         = _app.Version,
+            UltimaConexion  = Timestamp.FromDateTime(DateTime.UtcNow),
+            Servicio        = _app.ServiceName,
+            BitlockerActivo = ObtenerBitLockerActivo(),
+            FirewallActivo  = ObtenerFirewallActivo(),
+            AdminsLocales   = ObtenerAdminsLocales()
         };
+
+        var campos = new List<string>
+        {
+            "hostname", "version", "servicio", "ultima_conexion",
+            "bitlocker_activo", "firewall_activo", "admins_locales"
+        };
+
         if (!string.IsNullOrEmpty(ipLocal))
-            doc["ip_local"] = ipLocal;
+        {
+            instancia.IpLocal = ipLocal;
+            campos.Add("ip_local");
+        }
 
         // Geolocalizar solo la primera vez o cada 30 minutos
         if (_geoCache == null || (DateTime.UtcNow - _ultimaGeolocalizacion).TotalMinutes >= 30)
@@ -120,26 +134,23 @@ public class RegistroInstanciaFirebaseService : BackgroundService
                 _geoCache = await GeolocalizarIpAsync(ipPublica).ConfigureAwait(false);
                 _ultimaGeolocalizacion = DateTime.UtcNow;
                 if (_geoCache != null)
-                    doc["ip_publica"] = ipPublica;
+                    instancia.IpPublica = ipPublica;
             }
         }
 
         if (_geoCache != null)
         {
-            doc["lat"] = _geoCache.Lat;
-            doc["lon"] = _geoCache.Lon;
-            doc["ciudad"] = _geoCache.Ciudad;
-            doc["pais"] = _geoCache.Pais;
-            doc["isp"] = _geoCache.Isp;
-            doc["ultima_geolocalizacion"] = Timestamp.FromDateTime(_ultimaGeolocalizacion);
+            instancia.Lat                  = _geoCache.Lat;
+            instancia.Lon                  = _geoCache.Lon;
+            instancia.Ciudad               = _geoCache.Ciudad;
+            instancia.Pais                 = _geoCache.Pais;
+            instancia.Isp                  = _geoCache.Isp;
+            instancia.UltimaGeolocalizacion = Timestamp.FromDateTime(_ultimaGeolocalizacion);
+            campos.AddRange(new[] { "ip_publica", "lat", "lon", "ciudad", "pais", "isp", "ultima_geolocalizacion" });
         }
 
-        doc["bitlocker_activo"] = ObtenerBitLockerActivo();
-        doc["admins_locales"]   = ObtenerAdminsLocales();
-        doc["firewall_activo"] = ObtenerFirewallActivo();
-
         var refDoc = _db.Collection(_firebase.FirestoreColeccionInstancias).Document(_machineId);
-        await refDoc.SetAsync(doc, SetOptions.MergeAll, ct).ConfigureAwait(false);
+        await refDoc.SetAsync(instancia, SetOptions.MergeFields(campos.ToArray()), ct).ConfigureAwait(false);
         _logger.LogDebug("Instancia registrada: {Hostname} ({Version})", hostname, _app.Version);
     }
 

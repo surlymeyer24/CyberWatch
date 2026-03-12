@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using CyberWatch.Shared.Models;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
 using Google.Cloud.Storage.V1;
@@ -102,12 +103,14 @@ public class CapturaService : BackgroundService
             Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", resolved);
             var db = FirestoreDb.Create(projectId);
             var docRef = db.Collection(coleccion).Document(machineId);
-            await docRef.SetAsync(new Dictionary<string, object>
+            await docRef.SetAsync(new InstanciaMaquina
             {
-                ["ultima_captura_url"]    = url,
-                ["ultima_captura_ts"]     = Timestamp.FromDateTime(DateTime.UtcNow),
-                ["ultima_captura_motivo"] = SanitizarNombre(motivo)
-            }, SetOptions.MergeAll);
+                UltimaCapturaUrl    = url,
+                UltimaCapturaTz     = Timestamp.FromDateTime(DateTime.UtcNow),
+                UltimaCapturaMotivo = SanitizarNombre(motivo)
+            }, SetOptions.MergeFields(
+                "ultima_captura_url", "ultima_captura_ts", "ultima_captura_motivo"
+            ));
         }
         catch (Exception ex)
         {

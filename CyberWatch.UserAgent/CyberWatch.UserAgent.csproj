@@ -7,6 +7,9 @@
         <RootNamespace>CyberWatch.UserAgent</RootNamespace>
     </PropertyGroup>
     <ItemGroup>
+        <ProjectReference Include="..\CyberWatch.Shared\CyberWatch.Shared.csproj" />
+    </ItemGroup>
+    <ItemGroup>
         <PackageReference Include="Google.Cloud.Firestore" Version="3.6.0" />
         <PackageReference Include="Google.Cloud.Storage.V1" Version="4.10.0" />
         <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
