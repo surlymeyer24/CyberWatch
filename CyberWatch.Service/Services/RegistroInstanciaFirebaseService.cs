@@ -136,6 +136,7 @@ public class RegistroInstanciaFirebaseService : BackgroundService
 
         doc["bitlocker_activo"] = ObtenerBitLockerActivo();
         doc["admins_locales"]   = ObtenerAdminsLocales();
+        doc["firewall_activo"] = ObtenerFirewallActivo();
 
         var refDoc = _db.Collection(_firebase.FirestoreColeccionInstancias).Document(_machineId);
         await refDoc.SetAsync(doc, SetOptions.MergeAll, ct).ConfigureAwait(false);
@@ -248,6 +249,24 @@ public class RegistroInstanciaFirebaseService : BackgroundService
         return false;
     }
 
+    private static bool ObtenerFirewallActivo()
+    {
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                @"\\.\root\StandardCimv2",
+                "SELECT Enabled FROM MSFT_NetFirewallProfile WHERE Name='Domain' OR Name='Private' OR Name='Public'");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                if (Convert.ToInt32(obj["Enabled"]) != 1)
+                    return false;
+            }
+            return true;
+        }
+        catch { /* ignore */ }
+        return false;
+    }
+
     private static List<string> ObtenerAdminsLocales()
     {
         var admins = new List<string>();
@@ -291,3 +310,4 @@ public class RegistroInstanciaFirebaseService : BackgroundService
         return null;
     }
 }
+

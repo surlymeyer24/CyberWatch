@@ -34,6 +34,7 @@ namespace CyberWatch.Service
                         await _firebaseAlertas.EnviarAlertaAsync(reporte, tokenCancelacion);
                         LiquidarProcesos.Liquidar(reporte);
                         await _pipeServer.NotificarAmenazaAsync(reporte.NombreProceso, tokenCancelacion);
+                        
                     }
                 }
 

@@ -54,3 +54,16 @@ foreach (ManagementObject obj in searcher.Get())
 **Regla:** Para cualquier identificador que deba ser estable por máquina física,
 usar siempre UUID de hardware. Nunca confiar en archivos locales como fuente
 de identidad única.
+
+---
+
+## Flujo de trabajo: discutir antes de actuar
+
+Cuando el usuario mencione una idea, problema o posible cambio — sin importar el tipo de acción (código, arquitectura, configuración, comandos, etc.) — NO lo implementes directamente.
+
+**Procedimiento obligatorio:**
+1. Presentar el razonamiento: qué harías, por qué, y cómo quedaría.
+2. Esperar aprobación explícita del usuario antes de proceder.
+3. Una vez que el usuario diga "apruebo", "está bien", o similar — preguntar explícitamente "¿Empiezo?" antes de ejecutar cualquier acción.
+
+Solo ejecutar cuando el usuario confirme esa última pregunta.

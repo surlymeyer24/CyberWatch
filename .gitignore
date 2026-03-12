@@ -7,6 +7,8 @@ publish/
 publish_output/
 publish_output.zip
 CyberWatch.Service.zip
+CyberWatch-*.zip
+publish_useragent/
 
 # Node.js (not needed in .NET projects)
 node_modules/
@@ -27,6 +29,13 @@ auth/
 # Temporary dumps
 firebase_dump.json
 firebase_dump.md
+
+# Logs
+*.log
+.firebase/
+
+# Claude Code local settings (machine-specific permissions)
+.claude/settings.local.json
 
 # IDE
 .vs/

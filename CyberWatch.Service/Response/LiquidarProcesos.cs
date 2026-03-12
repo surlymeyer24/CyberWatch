@@ -1,11 +1,6 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading.Tasks;
 
 using CyberWatch.Service.Models;
-using CyberWatch.Service.Config;
 
 namespace CyberWatch.Service.Response
 {
@@ -23,13 +18,13 @@ namespace CyberWatch.Service.Response
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error al liquidar el proceso {reporte.NombreProceso}: {ex.Message}");
+                        Trace.TraceWarning($"Error al liquidar el proceso {reporte.NombreProceso}: {ex.Message}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error al liquidar procesos: {ex.Message}");
+                Trace.TraceWarning($"Error al liquidar procesos: {ex.Message}");
             }
         }
     }

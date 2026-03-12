@@ -7,12 +7,15 @@
     <RootNamespace>CyberWatch.Service</RootNamespace>
   </PropertyGroup>
   <Target Name="CopiarInstaller" AfterTargets="Publish">
-    <Copy SourceFiles="$(ProjectDir)install.bat" 
-          DestinationFolder="$(PublishDir)" />
+    <Copy SourceFiles="$(ProjectDir)install.bat" DestinationFolder="$(PublishDir)" />
   </Target>
   <ItemGroup>
+    <ProjectReference Include="..\CyberWatch.Shared\CyberWatch.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="FirebaseAdmin" Version="3.0.1" />
-    <PackageReference Include="Google.Cloud.Firestore" Version="3.6.0" />
+    <PackageReference Include="Google.Cloud.Firestore" Version="4.2.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
     <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
