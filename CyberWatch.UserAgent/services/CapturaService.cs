@@ -94,9 +94,9 @@ public class CapturaService : BackgroundService
             using var fileStream = File.OpenRead(rutaLocal);
             await storageClient.UploadObjectAsync(bucket, objectName, "image/png", fileStream);
 
-            // URL firmada válida 365 días (no requiere acceso público ni ACLs por objeto)
+            // URL firmada válida 7 días (límite máximo del firmador V4)
             var urlSigner = UrlSigner.FromCredential(credential);
-            var url = await urlSigner.SignAsync(bucket, objectName, TimeSpan.FromDays(365));
+            var url = await urlSigner.SignAsync(bucket, objectName, TimeSpan.FromDays(7));
             _logger.LogInformation("Captura subida a Storage: {ObjectName}", objectName);
 
             // Actualizar Firestore

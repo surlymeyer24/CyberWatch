@@ -26,6 +26,9 @@ auth/
 .env
 .env.*
 
+# Firebase Data Connect (generado automáticamente, no es parte del proyecto)
+dataconnect/
+
 # Temporary dumps
 firebase_dump.json
 firebase_dump.md

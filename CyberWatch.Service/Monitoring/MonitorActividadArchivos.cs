@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -12,7 +13,7 @@ namespace CyberWatch.Service.Monitoring
     public class MonitorActividadArchivos
     {
         private List<FileSystemWatcher> _watchers = new List<FileSystemWatcher>();
-        public List<EventoArchivo> Eventos { get; private set; } = new List<EventoArchivo>();
+        public ConcurrentBag<EventoArchivo> Eventos { get; private set; } = new();
 
         
         public void IniciarMonitorizacion()

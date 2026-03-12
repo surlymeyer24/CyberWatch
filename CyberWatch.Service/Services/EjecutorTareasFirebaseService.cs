@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.IO.Compression;
+using System.Net.Http;
 using CyberWatch.Service.Config;
 using Google.Cloud.Firestore;
 using Microsoft.Extensions.Hosting;
@@ -96,6 +99,10 @@ public class EjecutorTareasFirebaseService : BackgroundService
 
                 switch (comando.Trim().ToLowerInvariant())
                 {
+                    case "actualizar_agente":
+                        await EjecutarActualizacionAgenteAsync(docRef, db, ct);
+                        break;
+
                     default:
                         _logger.LogWarning("Comando desconocido: '{Cmd}'", comando);
                         await ActualizarDocAsync(docRef, new Dictionary<string, object>
@@ -121,6 +128,105 @@ public class EjecutorTareasFirebaseService : BackgroundService
         {
             await listener.StopAsync();
         }
+    }
+
+    // ── Actualización remota ──────────────────────────────────────────────────
+
+    private async Task EjecutarActualizacionAgenteAsync(DocumentReference docRef, FirestoreDb db, CancellationToken ct)
+    {
+        // 1. Leer url_descarga desde config/ciberseguridad
+        string url;
+        try
+        {
+            var configSnap = await db.Collection("config").Document("ciberseguridad").GetSnapshotAsync(ct);
+            if (!configSnap.Exists || !configSnap.TryGetValue<string>("url_descarga", out var u) || string.IsNullOrWhiteSpace(u))
+            {
+                await ActualizarDocAsync(docRef, new Dictionary<string, object>
+                {
+                    ["comando_estado"]    = "error",
+                    ["comando_resultado"] = "No se encontró url_descarga en config/ciberseguridad."
+                }, ct);
+                return;
+            }
+            url = u;
+        }
+        catch (Exception ex)
+        {
+            await ActualizarDocAsync(docRef, new Dictionary<string, object>
+            {
+                ["comando_estado"]    = "error",
+                ["comando_resultado"] = $"Error leyendo config: {ex.Message}"
+            }, ct);
+            return;
+        }
+
+        // 2. Descargar ZIP
+        var zipPath     = Path.Combine(Path.GetTempPath(), "cyberwatch_update.zip");
+        var extractPath = Path.Combine(Path.GetTempPath(), "cyberwatch_update_tmp");
+
+        _logger.LogInformation("Descargando actualización desde {Url}", url);
+        try
+        {
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("User-Agent", "CyberWatch-Updater/1.0");
+            var bytes = await http.GetByteArrayAsync(url, ct);
+            await File.WriteAllBytesAsync(zipPath, bytes, ct);
+        }
+        catch (Exception ex)
+        {
+            await ActualizarDocAsync(docRef, new Dictionary<string, object>
+            {
+                ["comando_estado"]    = "error",
+                ["comando_resultado"] = $"Error al descargar: {ex.Message}"
+            }, ct);
+            return;
+        }
+
+        // 3. Extraer ZIP
+        try
+        {
+            if (Directory.Exists(extractPath)) Directory.Delete(extractPath, true);
+            ZipFile.ExtractToDirectory(zipPath, extractPath);
+        }
+        catch (Exception ex)
+        {
+            await ActualizarDocAsync(docRef, new Dictionary<string, object>
+            {
+                ["comando_estado"]    = "error",
+                ["comando_resultado"] = $"Error al extraer ZIP: {ex.Message}"
+            }, ct);
+            return;
+        }
+
+        // 4. Escribir script de actualización que corre desacoplado del proceso actual
+        var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+        var scriptPath = Path.Combine(Path.GetTempPath(), "cw_update.bat");
+        File.WriteAllText(scriptPath,
+            $"@echo off\r\n" +
+            $"timeout /t 3 /nobreak >nul\r\n" +
+            $"net stop CyberWatch\r\n" +
+            $"timeout /t 2 /nobreak >nul\r\n" +
+            $"xcopy /E /I /Y \"{extractPath}\\*\" \"{installDir}\\\"\r\n" +
+            $"net start CyberWatch\r\n" +
+            $"rd /s /q \"{extractPath}\"\r\n" +
+            $"del \"{zipPath}\"\r\n" +
+            $"del \"%~f0\"\r\n");
+
+        // 5. Lanzar script desacoplado (sobrevive al stop del servicio)
+        Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"")
+        {
+            CreateNoWindow  = true,
+            UseShellExecute = false
+        });
+
+        _logger.LogInformation("Script de actualización lanzado. El servicio se reiniciará.");
+
+        // 6. Marcar estado antes de que el servicio se detenga
+        await ActualizarDocAsync(docRef, new Dictionary<string, object>
+        {
+            ["comando_estado"]    = "reiniciando",
+            ["comando_resultado"] = $"Descargado desde {url}. El servicio se reiniciará en segundos."
+        }, ct);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

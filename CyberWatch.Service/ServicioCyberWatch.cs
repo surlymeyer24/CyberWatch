@@ -25,9 +25,10 @@ namespace CyberWatch.Service
 
             while (!tokenCancelacion.IsCancellationRequested)
             {
-                foreach (var nombreProceso in _monitor.Eventos.Select(e => e.NombreProceso).Distinct())
+                var snapshot = _monitor.Eventos.ToList();
+                foreach (var nombreProceso in snapshot.Select(e => e.NombreProceso).Distinct())
                 {
-                    var reporte = EvaluadorAmenazas.Evaluar(_monitor.Eventos, nombreProceso);
+                    var reporte = EvaluadorAmenazas.Evaluar(snapshot, nombreProceso);
                     if (reporte != null)
                     {
                         GestorAlertas.Alertar(reporte);
