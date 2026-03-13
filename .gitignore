@@ -6,9 +6,10 @@ obj/
 publish/
 publish_output/
 publish_output.zip
+publish_useragent/
+release/
 CyberWatch.Service.zip
 CyberWatch-*.zip
-publish_useragent/
 
 # Node.js (not needed in .NET projects)
 node_modules/
