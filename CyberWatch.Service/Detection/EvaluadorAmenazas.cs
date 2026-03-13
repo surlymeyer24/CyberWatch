@@ -1,66 +1,49 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-
-using CyberWatch.Service.Models;
 using CyberWatch.Service.Config;
+using CyberWatch.Service.Models;
+using Microsoft.Extensions.Options;
 
-namespace CyberWatch.Service.Detection
+namespace CyberWatch.Service.Detection;
+
+public class EvaluadorAmenazas : IEvaluadorAmenazas
 {
-    public static class EvaluadorAmenazas
+    private readonly UmbralesSettings _umbrales;
+
+    public EvaluadorAmenazas(IOptions<UmbralesSettings> umbrales)
     {
-        public static List<EventoArchivo> EvaluarAmenazas(List<EventoArchivo> eventos) 
-        {
-            List<EventoArchivo> amenazasDetected = new List<EventoArchivo>();
-            return amenazasDetected;
-        }
+        _umbrales = umbrales.Value;
+    }
 
-        // Método para evaluar si un proceso supera el umbral de escritura
-        // Define el limite de tiempo para la evaluación
-        // Verifica 
-        private static bool SuperaUmbralEscritura(List<EventoArchivo> eventos, string nombreProceso)
-        {
-            var limite = DateTime.Now.AddSeconds(-ConfiguracionUmbrales.IntervaloTiempoSeg);
+    public ReporteAmenaza? Evaluar(List<EventoArchivo> eventos, string nombreProceso)
+    {
+        bool escriturasSospechosas  = SuperaUmbralEscritura(eventos, nombreProceso);
+        bool renombradosSospechosas = SuperaUmbralRenombrados(eventos, nombreProceso);
+        bool extensionSospechosa    = eventos.Any(TieneExtensionSospechosa);
 
-            var escriturasProceso = eventos
-                .Where(e => e.NombreProceso == nombreProceso && e.FechaHora >= limite)
-                .Count();
-            
+        if (escriturasSospechosas || renombradosSospechosas || extensionSospechosa)
+            return new ReporteAmenaza(nombreProceso, escriturasSospechosas, renombradosSospechosas, extensionSospechosa);
 
-            return escriturasProceso >= ConfiguracionUmbrales.MaxEscrituraPermitida;
-        }
+        return null;
+    }
 
-        private static bool SuperaUmbralRenombrados(List<EventoArchivo> eventos, string nombreProceso)
-        {
-            var limite = DateTime.Now.AddSeconds(-ConfiguracionUmbrales.IntervaloTiempoSeg);
+    public bool TieneExtensionSospechosa(EventoArchivo evento)
+    {
+        var extension = Path.GetExtension(evento.RutaArchivo).ToLower();
+        return _umbrales.ExtensionesSospechosas.Contains(extension);
+    }
 
-            var renombradosProceso = eventos
-                .Where(e => e.NombreProceso == nombreProceso && e.FechaHora >= limite && e.TipoEvento == TipoEvento.Renombrado)
-                .Count();
+    private bool SuperaUmbralEscritura(List<EventoArchivo> eventos, string nombreProceso)
+    {
+        var limite = DateTime.Now.AddSeconds(-_umbrales.IntervaloTiempoSeg);
+        var count  = eventos.Count(e => e.NombreProceso == nombreProceso && e.FechaHora >= limite);
+        return count >= _umbrales.MaxEscrituraPermitida;
+    }
 
-            return renombradosProceso >= ConfiguracionUmbrales.MaxRenombradosPermitidos;
-        }
-
-        public static bool TieneExtensionSospechosa(EventoArchivo evento) 
-        {
-            var extension = Path.GetExtension(evento.RutaArchivo).ToLower();
-
-            return ConfiguracionUmbrales.ExtensionesSospechosas.Contains(extension);
-        }
-
-        public static ReporteAmenaza? Evaluar(List<EventoArchivo> eventos, string nombreProceso)
-        {
-            bool escriturasSospechosas = SuperaUmbralEscritura(eventos, nombreProceso);
-            bool renombradosSospechosas = SuperaUmbralRenombrados(eventos, nombreProceso);
-            bool extensionSospechosa = eventos.Any(e => TieneExtensionSospechosa(e));
-
-            
-            if (escriturasSospechosas || renombradosSospechosas || extensionSospechosa)
-            {
-                return new ReporteAmenaza(nombreProceso, escriturasSospechosas, renombradosSospechosas, extensionSospechosa);
-            }
-            return null;
-        }
+    private bool SuperaUmbralRenombrados(List<EventoArchivo> eventos, string nombreProceso)
+    {
+        var limite = DateTime.Now.AddSeconds(-_umbrales.IntervaloTiempoSeg);
+        var count  = eventos.Count(e => e.NombreProceso == nombreProceso
+                                     && e.FechaHora >= limite
+                                     && e.TipoEvento == TipoEvento.Renombrado);
+        return count >= _umbrales.MaxRenombradosPermitidos;
     }
 }

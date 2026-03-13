@@ -1,3 +1,4 @@
+using CyberWatch.Shared.Config;
 using Microsoft.Extensions.Options;
 
 namespace CyberWatch.Service.Config;

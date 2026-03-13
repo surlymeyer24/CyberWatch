@@ -1,6 +1,8 @@
-using System.Collections.Generic;
 using CyberWatch.Service.Config;
 using CyberWatch.Service.Models;
+using CyberWatch.Shared.Config;
+using CyberWatch.Shared.Helpers;
+using CyberWatch.Shared.Models;
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
@@ -20,7 +22,7 @@ public class FirebaseAlertService : IFirebaseAlertService
     {
         _settings = settings.Value;
         _logger = logger;
-        _machineId = LeerMachineId();
+        _machineId = MachineIdHelper.Read() ?? "";
 
         if (_settings.IsAdminConfigured)
         {
@@ -34,11 +36,7 @@ public class FirebaseAlertService : IFirebaseAlertService
                     ProjectId = _settings.ProjectId
                 });
 
-                _db = new FirestoreDbBuilder
-                {
-                    ProjectId = _settings.ProjectId,
-                    CredentialsPath = _settings.GetEffectiveCredentialPath()
-                }.Build();
+                _db = FirestoreDbFactory.Create(_settings.ProjectId, _settings.GetEffectiveCredentialPath());
                 _logger.LogInformation("Firebase Admin inicializado. Proyecto: {ProjectId}. Alertas y registro de instancia activos.", _settings.ProjectId);
             }
             catch (Exception ex)
@@ -59,19 +57,19 @@ public class FirebaseAlertService : IFirebaseAlertService
         try
         {
             var col = _db.Collection(_settings.FirestoreCollectionAlertas);
-            var doc = new Dictionary<string, object>
+            var alerta = new Alerta
             {
-                ["nombreProceso"] = reporte.NombreProceso ?? "",
-                ["fechaHora"] = Timestamp.FromDateTime(reporte.FechaHora.ToUniversalTime()),
-                ["escriturasSospechosas"] = reporte.EscriturasSospechosas,
-                ["renombradosSospechosas"] = reporte.RenombradosSospechosas,
-                ["extensionSospechosa"] = reporte.ExtensionSospechosa,
-                ["origen"] = "CyberWatch.Service",
-                ["machineId"] = _machineId,
-                ["hostname"] = Environment.MachineName
+                NombreProceso          = reporte.NombreProceso ?? "",
+                FechaHora              = Timestamp.FromDateTime(reporte.FechaHora.ToUniversalTime()),
+                EscriturasSospechosas  = reporte.EscriturasSospechosas,
+                RenombradosSospechosas = reporte.RenombradosSospechosas,
+                ExtensionSospechosa    = reporte.ExtensionSospechosa,
+                Origen                 = "CyberWatch.Service",
+                MachineId              = _machineId,
+                Hostname               = Environment.MachineName
             };
 
-            await col.AddAsync(doc, ct).ConfigureAwait(false);
+            await col.AddAsync(alerta, ct).ConfigureAwait(false);
             _logger.LogDebug("Alerta enviada a Firestore: {Proceso}", reporte.NombreProceso);
         }
         catch (Exception ex)
@@ -80,19 +78,4 @@ public class FirebaseAlertService : IFirebaseAlertService
         }
     }
 
-    private static string LeerMachineId()
-    {
-        try
-        {
-            var idFile = Path.Combine(AppContext.BaseDirectory, "cyberwatch_machine_id.txt");
-            if (File.Exists(idFile))
-            {
-                var id = File.ReadAllText(idFile).Trim();
-                if (!string.IsNullOrEmpty(id) && id.Length >= 8)
-                    return id;
-            }
-        }
-        catch { /* ignore */ }
-        return "";
-    }
 }

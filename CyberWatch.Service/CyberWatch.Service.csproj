@@ -16,6 +16,7 @@
   <ItemGroup>
     <PackageReference Include="FirebaseAdmin" Version="3.0.1" />
     <PackageReference Include="Google.Cloud.Firestore" Version="4.2.0" />
+    <PackageReference Include="Google.Cloud.Logging.V2" Version="4.5.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
     <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />

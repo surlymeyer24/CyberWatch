@@ -4,6 +4,8 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Text.Json;
 using CyberWatch.Service.Config;
+using CyberWatch.Shared.Config;
+using CyberWatch.Shared.Helpers;
 using CyberWatch.Shared.Models;
 using Google.Cloud.Firestore;
 using Microsoft.Extensions.Hosting;
@@ -60,11 +62,7 @@ public class RegistroInstanciaFirebaseService : BackgroundService
 
         try
         {
-            _db = new FirestoreDbBuilder
-            {
-                ProjectId = _firebase.ProjectId,
-                CredentialsPath = _firebase.GetEffectiveCredentialPath()
-            }.Build();
+            _db = FirestoreDbFactory.Create(_firebase.ProjectId, _firebase.GetEffectiveCredentialPath());
         }
         catch (Exception ex)
         {
@@ -91,7 +89,8 @@ public class RegistroInstanciaFirebaseService : BackgroundService
                 _logger.LogError(ex, "Error al registrar instancia en Firestore");
             }
 
-            await Task.Delay(interval, stoppingToken).ConfigureAwait(false);
+            try { await Task.Delay(interval, stoppingToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
         }
     }
 

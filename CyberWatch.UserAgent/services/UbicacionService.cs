@@ -1,34 +1,35 @@
+using CyberWatch.Shared.Config;
+using CyberWatch.Shared.Helpers;
 using CyberWatch.Shared.Models;
 using Google.Cloud.Firestore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Windows.Devices.Geolocation;
 
 namespace CyberWatch.UserAgent.services;
 
 public class UbicacionService : BackgroundService
 {
-    private readonly IConfiguration _config;
+    private readonly FirebaseSettings _firebase;
     private readonly ILogger<UbicacionService> _logger;
 
-    public UbicacionService(IConfiguration config, ILogger<UbicacionService> logger)
+    public UbicacionService(IOptions<FirebaseSettings> firebase, ILogger<UbicacionService> logger)
     {
-        _config = config;
-        _logger = logger;
+        _firebase = firebase.Value;
+        _logger   = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var machineId = LeerMachineId();
+        var machineId = MachineIdHelper.Read();
         if (machineId == null)
         {
             _logger.LogWarning("No se encontró cyberwatch_machine_id.txt. UbicacionService desactivado.");
             return;
         }
 
-        var projectId = _config["Firebase:ProjectId"];
-        if (string.IsNullOrEmpty(projectId))
+        if (string.IsNullOrEmpty(_firebase.ProjectId))
         {
             _logger.LogWarning("Firebase:ProjectId no configurado. UbicacionService desactivado.");
             return;
@@ -37,15 +38,7 @@ public class UbicacionService : BackgroundService
         FirestoreDb db;
         try
         {
-            var credPath = _config["Firebase:CredentialPath"];
-            if (!string.IsNullOrEmpty(credPath))
-            {
-                var resolved = Path.IsPathRooted(credPath)
-                    ? credPath
-                    : Path.Combine(AppContext.BaseDirectory, credPath);
-                Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", resolved);
-            }
-            db = FirestoreDb.Create(projectId);
+            db = FirestoreDbFactory.Create(_firebase.ProjectId, _firebase.GetEffectiveCredentialPath());
         }
         catch (Exception ex)
         {
@@ -61,24 +54,23 @@ public class UbicacionService : BackgroundService
         }
 
         var geolocator = new Geolocator { DesiredAccuracyInMeters = 100 };
-        var coleccion = _config["Firebase:FirestoreColeccionInstancias"] ?? "cyberwatch_instancias";
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 var posicion = await geolocator.GetGeopositionAsync().AsTask(stoppingToken);
-                var coord = posicion.Coordinate;
+                var coord    = posicion.Coordinate;
 
                 var instancia = new InstanciaMaquina
                 {
-                    LatGps            = coord.Point.Position.Latitude,
-                    LonGps            = coord.Point.Position.Longitude,
-                    PrecisionGps      = coord.Accuracy,
+                    LatGps             = coord.Point.Position.Latitude,
+                    LonGps             = coord.Point.Position.Longitude,
+                    PrecisionGps       = coord.Accuracy,
                     UltimaUbicacionGps = Timestamp.FromDateTime(DateTime.UtcNow)
                 };
 
-                await db.Collection(coleccion).Document(machineId)
+                await db.Collection(_firebase.FirestoreColeccionInstancias).Document(machineId)
                     .SetAsync(instancia, SetOptions.MergeFields(
                         "lat_gps", "lon_gps", "precision_gps", "ultima_ubicacion_gps"
                     ), stoppingToken);
@@ -94,21 +86,5 @@ public class UbicacionService : BackgroundService
 
             await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
         }
-    }
-
-    private static string? LeerMachineId()
-    {
-        try
-        {
-            var idFile = Path.Combine(AppContext.BaseDirectory, "cyberwatch_machine_id.txt");
-            if (File.Exists(idFile))
-            {
-                var id = File.ReadAllText(idFile).Trim();
-                if (!string.IsNullOrEmpty(id) && id.Length >= 8)
-                    return id;
-            }
-        }
-        catch { /* ignore */ }
-        return null;
     }
 }

@@ -1,7 +1,9 @@
+using CyberWatch.Shared.Config;
+using CyberWatch.Shared.Helpers;
 using Google.Cloud.Firestore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CyberWatch.UserAgent.services;
 
@@ -10,28 +12,30 @@ namespace CyberWatch.UserAgent.services;
 /// </summary>
 public class ComandoService : BackgroundService
 {
-    private readonly IConfiguration _config;
-    private readonly CapturaService _captura;
+    private readonly FirebaseSettings _firebase;
+    private readonly CapturaService   _captura;
     private readonly ILogger<ComandoService> _logger;
 
-    public ComandoService(IConfiguration config, CapturaService captura, ILogger<ComandoService> logger)
+    public ComandoService(
+        IOptions<FirebaseSettings> firebase,
+        CapturaService             captura,
+        ILogger<ComandoService>    logger)
     {
-        _config = config;
-        _captura = captura;
-        _logger = logger;
+        _firebase = firebase.Value;
+        _captura  = captura;
+        _logger   = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var machineId = LeerMachineId();
+        var machineId = MachineIdHelper.Read();
         if (machineId == null)
         {
             _logger.LogWarning("No se encontró cyberwatch_machine_id.txt. ComandoService desactivado.");
             return;
         }
 
-        var projectId = _config["Firebase:ProjectId"];
-        if (string.IsNullOrEmpty(projectId))
+        if (string.IsNullOrEmpty(_firebase.ProjectId))
         {
             _logger.LogWarning("Firebase:ProjectId no configurado. ComandoService desactivado.");
             return;
@@ -40,15 +44,7 @@ public class ComandoService : BackgroundService
         FirestoreDb db;
         try
         {
-            var credPath = _config["Firebase:CredentialPath"];
-            if (!string.IsNullOrEmpty(credPath))
-            {
-                var resolved = Path.IsPathRooted(credPath)
-                    ? credPath
-                    : Path.Combine(AppContext.BaseDirectory, credPath);
-                Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", resolved);
-            }
-            db = FirestoreDb.Create(projectId);
+            db = FirestoreDbFactory.Create(_firebase.ProjectId, _firebase.GetEffectiveCredentialPath());
         }
         catch (Exception ex)
         {
@@ -56,9 +52,7 @@ public class ComandoService : BackgroundService
             return;
         }
 
-        var coleccion = _config["Firebase:FirestoreColeccionInstancias"] ?? "cyberwatch_instancias";
-        var docRef = db.Collection(coleccion).Document(machineId);
-
+        var docRef = db.Collection(_firebase.FirestoreColeccionInstancias).Document(machineId);
         _logger.LogInformation("ComandoService iniciado, polling cada 15s.");
 
         while (!stoppingToken.IsCancellationRequested)
@@ -73,7 +67,6 @@ public class ComandoService : BackgroundService
                     if (cmd == "captura")
                         await _captura.TomarCapturaAsync("dashboard");
 
-                    // Limpiar el campo para no re-ejecutar
                     await docRef.UpdateAsync(
                         new Dictionary<string, object> { ["comando_ua"] = FieldValue.Delete },
                         cancellationToken: stoppingToken);
@@ -87,21 +80,5 @@ public class ComandoService : BackgroundService
 
             await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
         }
-    }
-
-    private static string? LeerMachineId()
-    {
-        try
-        {
-            var idFile = Path.Combine(AppContext.BaseDirectory, "cyberwatch_machine_id.txt");
-            if (File.Exists(idFile))
-            {
-                var id = File.ReadAllText(idFile).Trim();
-                if (!string.IsNullOrEmpty(id) && id.Length >= 8)
-                    return id;
-            }
-        }
-        catch { /* ignore */ }
-        return null;
     }
 }

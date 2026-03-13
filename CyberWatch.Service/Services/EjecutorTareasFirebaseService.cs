@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Http;
 using CyberWatch.Service.Config;
+using CyberWatch.Shared.Config;
+using CyberWatch.Shared.Helpers;
 using Google.Cloud.Firestore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -54,11 +56,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
         FirestoreDb db;
         try
         {
-            db = new FirestoreDbBuilder
-            {
-                ProjectId = _firebase.ProjectId,
-                CredentialsPath = _firebase.GetEffectiveCredentialPath()
-            }.Build();
+            db = FirestoreDbFactory.Create(_firebase.ProjectId, _firebase.GetEffectiveCredentialPath());
         }
         catch (Exception ex)
         {
@@ -67,6 +65,26 @@ public class EjecutorTareasFirebaseService : BackgroundService
         }
 
         var docRef = db.Collection(_firebase.FirestoreColeccionInstancias).Document(machineId);
+
+        // Al arrancar, si había una actualización en curso, marcarla como completada
+        try
+        {
+            var snap = await docRef.GetSnapshotAsync(stoppingToken);
+            if (snap.Exists && snap.TryGetValue<string>("comando_estado", out var estadoActual)
+                && estadoActual == "reiniciando")
+            {
+                await ActualizarDocAsync(docRef, new Dictionary<string, object>
+                {
+                    ["comando_estado"]    = "completado",
+                    ["comando_resultado"] = $"Actualización aplicada correctamente. Versión: {_app.Version}"
+                }, stoppingToken);
+                _logger.LogInformation("Actualización previa completada. Versión: {Version}", _app.Version);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo verificar estado de actualización previa.");
+        }
 
         _logger.LogInformation("Escuchando comandos en tiempo real (máquina: {Id}).", machineId);
 
@@ -201,13 +219,18 @@ public class EjecutorTareasFirebaseService : BackgroundService
         // 4. Escribir script de actualización que corre desacoplado del proceso actual
         var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var scriptPath = Path.Combine(Path.GetTempPath(), "cw_update.bat");
+        var logPath = Path.Combine(Path.GetTempPath(), "cw_update.log");
         File.WriteAllText(scriptPath,
             $"@echo off\r\n" +
+            $"echo [%DATE% %TIME%] Iniciando actualizacion >> \"{logPath}\"\r\n" +
             $"timeout /t 3 /nobreak >nul\r\n" +
-            $"net stop CyberWatch\r\n" +
+            $"net stop CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+            $"taskkill /F /IM CyberWatch.UserAgent.exe /T >> \"{logPath}\" 2>&1\r\n" +
             $"timeout /t 2 /nobreak >nul\r\n" +
-            $"xcopy /E /I /Y \"{extractPath}\\*\" \"{installDir}\\\"\r\n" +
-            $"net start CyberWatch\r\n" +
+            $"xcopy /E /I /Y \"{extractPath}\\*\" \"{installDir}\\\" >> \"{logPath}\" 2>&1\r\n" +
+            $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+            $"schtasks /Run /TN \"CyberWatch\\UserAgent\" >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] Actualizacion finalizada >> \"{logPath}\"\r\n" +
             $"rd /s /q \"{extractPath}\"\r\n" +
             $"del \"{zipPath}\"\r\n" +
             $"del \"%~f0\"\r\n");
@@ -245,7 +268,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
     {
         for (int i = 0; i < 24; i++)
         {
-            var id = LeerMachineId();
+            var id = MachineIdHelper.Read();
             if (id is not null) return id;
             if (i == 0)
                 _logger.LogInformation("Esperando machine ID (lo genera RegistroInstanciaService)...");
@@ -255,17 +278,4 @@ public class EjecutorTareasFirebaseService : BackgroundService
         return null;
     }
 
-    private static string? LeerMachineId()
-    {
-        try
-        {
-            var file = Path.Combine(
-                AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar),
-                "cyberwatch_machine_id.txt");
-            if (!File.Exists(file)) return null;
-            var id = File.ReadAllText(file).Trim();
-            return id.Length >= 8 ? id : null;
-        }
-        catch { return null; }
-    }
 }

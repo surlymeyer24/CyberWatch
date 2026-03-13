@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using CyberWatch.Service.Config;
+using CyberWatch.Shared.Config;
+using CyberWatch.Shared.Helpers;
+using CyberWatch.Shared.Models;
 using Google.Cloud.Firestore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -36,7 +39,7 @@ public class SecurityEventMonitorService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _machineId = LeerMachineId();
+        _machineId = MachineIdHelper.Read();
         if (_machineId == null)
         {
             _logger.LogWarning("SecurityEventMonitor: machineId no encontrado, servicio desactivado.");
@@ -51,11 +54,7 @@ public class SecurityEventMonitorService : BackgroundService
 
         try
         {
-            _db = new FirestoreDbBuilder
-            {
-                ProjectId = _firebase.ProjectId,
-                CredentialsPath = _firebase.GetEffectiveCredentialPath()
-            }.Build();
+            _db = FirestoreDbFactory.Create(_firebase.ProjectId, _firebase.GetEffectiveCredentialPath());
         }
         catch (Exception ex)
         {
@@ -77,7 +76,8 @@ public class SecurityEventMonitorService : BackgroundService
                 _logger.LogWarning(ex, "SecurityEventMonitor: error durante verificación.");
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
+            try { await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
@@ -86,18 +86,18 @@ public class SecurityEventMonitorService : BackgroundService
         var desde = _ultimaVerificacion;
         _ultimaVerificacion = DateTime.UtcNow;
 
-        var alertas = new List<Dictionary<string, object>>();
+        var alertas = new List<Alerta>();
 
         // --- Event ID 1116: Malware detectado por Defender ---
         alertas.AddRange(LeerEventos(
             "Microsoft-Windows-Windows Defender/Operational",
             1116, desde,
-            msg => new Dictionary<string, object>
+            msg => new Alerta
             {
-                ["tipo"] = "malware_detectado",
-                ["eventoId"] = 1116,
-                ["descripcion"] = "Windows Defender detectó malware",
-                ["detalle"] = msg[..Math.Min(500, msg.Length)]
+                Tipo        = "malware_detectado",
+                EventoId    = 1116,
+                Descripcion = "Windows Defender detectó malware",
+                Detalle     = msg[..Math.Min(500, msg.Length)]
             }));
 
         // --- Event ID 7036: Servicio detenido (filtrar Defender) ---
@@ -111,34 +111,34 @@ public class SecurityEventMonitorService : BackgroundService
                 if (!msg.Contains("detenido", StringComparison.OrdinalIgnoreCase) &&
                     !msg.Contains("stopped", StringComparison.OrdinalIgnoreCase))
                     return null;
-                return new Dictionary<string, object>
+                return new Alerta
                 {
-                    ["tipo"] = "defender_detenido",
-                    ["eventoId"] = 7036,
-                    ["descripcion"] = "Windows Defender fue detenido",
-                    ["detalle"] = msg[..Math.Min(300, msg.Length)]
+                    Tipo        = "defender_detenido",
+                    EventoId    = 7036,
+                    Descripcion = "Windows Defender fue detenido",
+                    Detalle     = msg[..Math.Min(300, msg.Length)]
                 };
             }));
 
         // --- Event ID 4732: Usuario agregado a grupo Administradores ---
         alertas.AddRange(LeerEventos(
             "Security", 4732, desde,
-            msg => new Dictionary<string, object>
+            msg => new Alerta
             {
-                ["tipo"] = "admin_agregado",
-                ["eventoId"] = 4732,
-                ["descripcion"] = "Usuario agregado al grupo Administradores",
-                ["detalle"] = msg[..Math.Min(500, msg.Length)]
+                Tipo        = "admin_agregado",
+                EventoId    = 4732,
+                Descripcion = "Usuario agregado al grupo Administradores",
+                Detalle     = msg[..Math.Min(500, msg.Length)]
             }));
 
         // --- Event ID 4625: Login fallido (brute force si >5 en 5 min) ---
         var loginsFallidosNuevos = LeerEventos("Security", 4625, desde, msg =>
-            new Dictionary<string, object>
+            new Alerta
             {
-                ["tipo"] = "brute_force",
-                ["eventoId"] = 4625,
-                ["descripcion"] = "Múltiples intentos de login fallidos (posible brute force)",
-                ["detalle"] = msg[..Math.Min(300, msg.Length)]
+                Tipo        = "brute_force",
+                EventoId    = 4625,
+                Descripcion = "Múltiples intentos de login fallidos (posible brute force)",
+                Detalle     = msg[..Math.Min(300, msg.Length)]
             });
 
         // Contar en ventana de 5 minutos
@@ -154,11 +154,11 @@ public class SecurityEventMonitorService : BackgroundService
         await EnviarAlertasAsync(alertas, ct);
     }
 
-    private List<Dictionary<string, object>> LeerEventos(
+    private List<Alerta> LeerEventos(
         string logName, int eventId, DateTime desde,
-        Func<string, Dictionary<string, object>?> mapear)
+        Func<string, Alerta?> mapear)
     {
-        var resultado = new List<Dictionary<string, object>>();
+        var resultado = new List<Alerta>();
         try
         {
             using var log = new EventLog(logName);
@@ -179,30 +179,30 @@ public class SecurityEventMonitorService : BackgroundService
         return resultado;
     }
 
-    private async Task EnviarAlertasAsync(List<Dictionary<string, object>> alertas, CancellationToken ct)
+    private async Task EnviarAlertasAsync(List<Alerta> alertas, CancellationToken ct)
     {
         if (_db == null || _machineId == null) return;
 
         var colAlertas   = _db.Collection(_firebase.FirestoreCollectionAlertas);
         var docInstancia = _db.Collection(_firebase.FirestoreColeccionInstancias).Document(_machineId);
 
-        var resumenAlertas = new List<object>();
+        var resumenAlertas = new List<AlertaSistema>();
 
         foreach (var alerta in alertas)
         {
-            alerta["fechaHora"] = Timestamp.FromDateTime(DateTime.UtcNow);
-            alerta["origen"]    = "SecurityEventMonitor";
-            alerta["machineId"] = _machineId;
-            alerta["hostname"]  = Environment.MachineName;
+            alerta.FechaHora  = Timestamp.FromDateTime(DateTime.UtcNow);
+            alerta.Origen     = "SecurityEventMonitor";
+            alerta.MachineId  = _machineId;
+            alerta.Hostname   = Environment.MachineName;
 
             try { await colAlertas.AddAsync(alerta, ct); }
             catch (Exception ex) { _logger.LogWarning(ex, "Error al guardar alerta de sistema."); }
 
-            resumenAlertas.Add(new
+            resumenAlertas.Add(new AlertaSistema
             {
-                tipo      = alerta["tipo"],
-                fechaHora = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
-                descripcion = alerta["descripcion"]
+                Tipo        = alerta.Tipo ?? "",
+                FechaHora   = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                Descripcion = alerta.Descripcion ?? ""
             });
         }
 
@@ -219,18 +219,4 @@ public class SecurityEventMonitorService : BackgroundService
         }
     }
 
-    private static string? LeerMachineId()
-    {
-        try
-        {
-            var idFile = Path.Combine(AppContext.BaseDirectory, "cyberwatch_machine_id.txt");
-            if (File.Exists(idFile))
-            {
-                var id = File.ReadAllText(idFile).Trim();
-                if (!string.IsNullOrEmpty(id) && id.Length >= 8) return id;
-            }
-        }
-        catch { /* ignore */ }
-        return null;
-    }
 }

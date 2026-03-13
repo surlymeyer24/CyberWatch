@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.Dashboard/CyberWatch.Dashboard.csproj -c Release)",
+      "Bash(\"c:/Users/Usr/Documents/CyberWatch/CyberWatch.UserAgent/bin/Debug/net8.0-windows10.0.19041.0/cyberwatch_machine_id.txt\")",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.Service/CyberWatch.Service.csproj --no-restore -v quiet)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.Shared/CyberWatch.Shared.csproj --no-restore -v quiet)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.UserAgent/CyberWatch.UserAgent.csproj --no-restore -v quiet)"
+    ]
+  }
+}

@@ -12,7 +12,16 @@
       "Bash(\"C:/Program Files/dotnet/dotnet.exe\" run --project CyberWatch.DumpFirestore)",
       "Bash(\"C:/Program Files/dotnet/dotnet.exe\" build CyberWatch.Dashboard)",
       "Bash(\"C:/Program Files/dotnet/dotnet.exe\" build CyberWatch.Service)",
-      "Bash(grep -E \"\\\\.cs$|csproj\")"
+      "Bash(grep -E \"\\\\.cs$|csproj\")",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet.exe build:*)",
+      "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\Usr\\\\Documents\\\\CyberWatch && dotnet build CyberWatch.Shared\\\\CyberWatch.Shared.csproj\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\Usr\\\\Documents\\\\CyberWatch''; dotnet build CyberWatch.Shared\\\\CyberWatch.Shared.csproj 2>&1 | Select-Object -Last 20\")",
+      "Read(//c/Program Files/dotnet/**)",
+      "Read(//c/Program Files \\(x86\\)/dotnet/**)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build \"c:/Users/Usr/Documents/CyberWatch/CyberWatch.Shared/CyberWatch.Shared.csproj\")",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.Service/CyberWatch.Service.csproj -c Release)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.UserAgent/CyberWatch.UserAgent.csproj -c Release)"
     ]
   }
 }

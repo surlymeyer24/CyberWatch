@@ -1,31 +1,29 @@
 using System.Diagnostics;
-
 using CyberWatch.Service.Models;
 
-namespace CyberWatch.Service.Response
+namespace CyberWatch.Service.Response;
+
+public class LiquidarProcesos : ILiquidadorProcesos
 {
-    public static class LiquidarProcesos
+    public void Liquidar(ReporteAmenaza reporte)
     {
-        public static void Liquidar(ReporteAmenaza reporte)
+        try
         {
-            try
+            foreach (var proceso in Process.GetProcessesByName(reporte.NombreProceso))
             {
-                foreach (var proceso in Process.GetProcessesByName(reporte.NombreProceso))
+                try
                 {
-                    try
-                    {
-                        proceso.Kill();
-                    }
-                    catch (Exception ex)
-                    {
-                        Trace.TraceWarning($"Error al liquidar el proceso {reporte.NombreProceso}: {ex.Message}");
-                    }
+                    proceso.Kill();
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceWarning($"Error al liquidar el proceso {reporte.NombreProceso}: {ex.Message}");
                 }
             }
-            catch (Exception ex)
-            {
-                Trace.TraceWarning($"Error al liquidar procesos: {ex.Message}");
-            }
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Error al liquidar procesos: {ex.Message}");
         }
     }
 }
