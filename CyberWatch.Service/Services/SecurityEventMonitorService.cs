@@ -183,10 +183,13 @@ public class SecurityEventMonitorService : BackgroundService
     {
         if (_db == null || _machineId == null) return;
 
-        var colAlertas   = _db.Collection(_firebase.FirestoreCollectionAlertas);
+        var colAlertas   = _db.Collection(_firebase.FirestoreColeccionInstancias)
+                              .Document(_machineId)
+                              .Collection(_firebase.FirestoreCollectionAlertas);
         var docInstancia = _db.Collection(_firebase.FirestoreColeccionInstancias).Document(_machineId);
 
         var resumenAlertas = new List<AlertaSistema>();
+        var desde = Timestamp.FromDateTime(DateTime.UtcNow.AddMinutes(-10));
 
         foreach (var alerta in alertas)
         {
@@ -195,7 +198,24 @@ public class SecurityEventMonitorService : BackgroundService
             alerta.MachineId  = _machineId;
             alerta.Hostname   = Environment.MachineName;
 
-            try { await colAlertas.AddAsync(alerta, ct); }
+            // Dedup: no crear si ya existe alerta con mismo tipo+eventoId en últimos 10 min
+            try
+            {
+                var existente = await colAlertas
+                    .WhereEqualTo("tipo", alerta.Tipo ?? "")
+                    .WhereEqualTo("eventoId", alerta.EventoId ?? 0)
+                    .WhereGreaterThanOrEqualTo("fechaHora", desde)
+                    .Limit(1)
+                    .GetSnapshotAsync(ct);
+
+                if (existente.Count > 0)
+                {
+                    _logger.LogDebug("Alerta de sistema duplicada omitida: tipo={Tipo}, eventoId={Id}", alerta.Tipo, alerta.EventoId);
+                    continue;
+                }
+
+                await colAlertas.AddAsync(alerta, ct);
+            }
             catch (Exception ex) { _logger.LogWarning(ex, "Error al guardar alerta de sistema."); }
 
             resumenAlertas.Add(new AlertaSistema
@@ -207,15 +227,18 @@ public class SecurityEventMonitorService : BackgroundService
         }
 
         // Actualizar campo alertas_sistema en la instancia (últimas 10)
-        try
+        if (resumenAlertas.Count > 0)
         {
-            await docInstancia.SetAsync(
-                new Dictionary<string, object> { ["alertas_sistema"] = resumenAlertas.TakeLast(10).ToList() },
-                SetOptions.MergeAll, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error al actualizar alertas_sistema en instancia.");
+            try
+            {
+                await docInstancia.SetAsync(
+                    new Dictionary<string, object> { ["alertas_sistema"] = resumenAlertas.TakeLast(10).ToList() },
+                    SetOptions.MergeAll, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error al actualizar alertas_sistema en instancia.");
+            }
         }
     }
 

@@ -62,15 +62,16 @@ Dashboard (web) ──── Firestore ───► Service (Session 0)
 | `ip_local`, `ultima_conexion` | Service | Conectividad |
 | `lat`, `lon`, `ciudad`, `pais`, `isp`, `ultima_geolocalizacion` | Service | Geolocalización por IP |
 | `lat_gps`, `lon_gps`, `precision_gps`, `ultima_ubicacion_gps` | UserAgent | GPS via Windows Location API |
-| `comando`, `comando_estado`, `comando_resultado` | Dashboard → Service | Comandos remotos (`actualizar_agente`, `sacar_captura`, etc.) |
-| `comando_ua`, `comando_ua_estado` | Dashboard → UserAgent | Comandos al UserAgent |
+| `comando`, `comando_estado`, `comando_resultado` | Dashboard → Service | Comandos remotos (`actualizar_agente`, etc.) |
+| `comando_ua`, `comando_ua_estado` | Dashboard → UserAgent | Comandos al UserAgent (`captura`) |
+| `ultima_captura_url`, `ultima_captura_ts`, `ultima_captura_motivo` | UserAgent | Última captura de pantalla (URL firmada en Storage) |
 
 ### Comandos remotos disponibles
 
 | Comando | Destino | Acción |
 |---|---|---|
-| `actualizar_agente` | Service | Descarga el ZIP del release, extrae, reemplaza binarios, reinicia servicio y UserAgent |
-| `sacar_captura` | UserAgent | Toma screenshot y lo sube a Firebase Storage |
+| `actualizar_agente` | Service | Descarga el ZIP del release, extrae, reemplaza binarios, reinicia servicio y UserAgent. Post-reinicio: fuerza creación de tarea en Task Scheduler, ejecuta UserAgent, reporta log del batch en `comando_resultado` |
+| `captura` | UserAgent | Toma screenshot, lo guarda en `%LOCALAPPDATA%\CyberWatch\capturas\`, lo sube a Firebase Storage y escribe la URL firmada en Firestore |
 
 ---
 
@@ -90,7 +91,7 @@ Dashboard (web) ──── Firestore ───► Service (Session 0)
 | `cyberwatch_service.log` | `C:\Program Files\CyberWatch\` | Service (requiere admin para escribir) |
 | `cyberwatch_useragent.log` | `%LOCALAPPDATA%\CyberWatch\` | UserAgent |
 | `cyberwatch_ua_crash.txt` | `%TEMP%\` | Crash del UserAgent antes de que inicie el host |
-| `cw_update.log` | `%TEMP%\` | Script `.bat` de actualización remota |
+| `cw_update.log` | `C:\Windows\Temp\` (SYSTEM) | Script `.bat` de actualización remota (log detallado con exitcodes). También se reporta en `comando_resultado` de Firestore |
 
 ---
 
@@ -124,14 +125,12 @@ El ID de máquina se deriva del UUID de hardware via WMI (`Win32_ComputerSystemP
 
 ## Pendientes / Estado actual
 
-### Bugs abiertos
+### Bugs resueltos (v4.3.0+)
 
-- [ ] **`cyberwatch_useragent.log` no se genera** — el UserAgent corre (visible en Administrador de tareas) pero falla en silencio antes de escribir logs. Diagnosticar con `%TEMP%\cyberwatch_ua_crash.txt` (incluido desde v3.9.0).
-- [ ] **`comando_ua` no desaparece de Firestore** — el UserAgent no puede conectarse a Firestore; posible causa: `CredentialJson` malformado en `appsettings.json` o `MachineIdHelper.Read()` retorna null.
-
-### Deploy pendiente
-
-- [ ] **v3.9.0** — incluye: fix de log path (LocalAppData), crash handler en `Program.cs`, fix `OperationCanceledException` en shutdown, fix estado "reiniciando" en Dashboard post-actualización.
+- [x] **`cyberwatch_useragent.log` no se genera** — resuelto: log path movido a `%LOCALAPPDATA%\CyberWatch\`.
+- [x] **`comando_ua` no desaparece de Firestore** — resuelto: credenciales embebidas como `CredentialJson` + `GetEffectiveCredentialPath()` escribe temp file.
+- [x] **Captura falla con error GDI+** — resuelto: directorio de capturas movido de `C:\Program Files\CyberWatch\capturas\` a `%LOCALAPPDATA%\CyberWatch\capturas\` (el UserAgent corre como usuario normal sin permisos de escritura en Program Files).
+- [x] **UserAgent no reinicia tras actualización remota** — resuelto: el Service ahora fuerza la creación de la tarea en Task Scheduler (`schtasks /Create /F`) y la ejecuta (`schtasks /Run`) en el bloque post-reinicio. Además, el log del batch script se reporta en `comando_resultado` de Firestore.
 
 ### Refactoring pendiente
 

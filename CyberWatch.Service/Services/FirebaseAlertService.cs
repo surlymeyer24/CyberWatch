@@ -52,14 +52,32 @@ public class FirebaseAlertService : IFirebaseAlertService
 
     public async Task EnviarAlertaAsync(ReporteAmenaza reporte, CancellationToken ct = default)
     {
-        if (_db == null) return;
+        if (_db == null || string.IsNullOrEmpty(_machineId)) return;
 
         try
         {
-            var col = _db.Collection(_settings.FirestoreCollectionAlertas);
+            var col = _db.Collection(_settings.FirestoreColeccionInstancias)
+                         .Document(_machineId)
+                         .Collection(_settings.FirestoreCollectionAlertas);
+
+            // Dedup: no crear si ya existe alerta con mismo proceso en últimos 10 min
+            var proceso = reporte.NombreProceso ?? "";
+            var desde = Timestamp.FromDateTime(DateTime.UtcNow.AddMinutes(-10));
+            var existente = await col
+                .WhereEqualTo("nombreProceso", proceso)
+                .WhereGreaterThanOrEqualTo("fechaHora", desde)
+                .Limit(1)
+                .GetSnapshotAsync(ct).ConfigureAwait(false);
+
+            if (existente.Count > 0)
+            {
+                _logger.LogDebug("Alerta duplicada omitida para proceso: {Proceso}", proceso);
+                return;
+            }
+
             var alerta = new Alerta
             {
-                NombreProceso          = reporte.NombreProceso ?? "",
+                NombreProceso          = proceso,
                 FechaHora              = Timestamp.FromDateTime(reporte.FechaHora.ToUniversalTime()),
                 EscriturasSospechosas  = reporte.EscriturasSospechosas,
                 RenombradosSospechosas = reporte.RenombradosSospechosas,
@@ -70,7 +88,7 @@ public class FirebaseAlertService : IFirebaseAlertService
             };
 
             await col.AddAsync(alerta, ct).ConfigureAwait(false);
-            _logger.LogDebug("Alerta enviada a Firestore: {Proceso}", reporte.NombreProceso);
+            _logger.LogDebug("Alerta enviada a Firestore: {Proceso}", proceso);
         }
         catch (Exception ex)
         {
