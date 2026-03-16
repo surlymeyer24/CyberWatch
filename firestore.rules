@@ -1,0 +1,33 @@
+rules_version = '2';
+// Reglas para el dashboard React (Front) y los agentes .NET.
+// El dashboard necesita leer instancias/alertas/config y escribir comandos en instancias.
+// En producción considera restringir read/write con request.auth != null (Firebase Auth).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Instancias: dashboard lee todo y escribe comando/comando_ua; Service y UserAgent escriben el resto
+    match /cyberwatch_instancias/{machineId} {
+      allow read, write: if true;
+
+      // Subcolección alertas: solo el Service escribe; dashboard y Collection group leen
+      match /alertas/{alertId} {
+        allow read: if true;
+        allow create: if true;
+        allow update, delete: if false;
+      }
+    }
+
+    // Configuración global: solo backend (o manual) escribe; dashboard lee
+    match /config/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Necesario para consultas por collection group (vista Alertas del dashboard)
+    match /{path=**}/alertas/{alertId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

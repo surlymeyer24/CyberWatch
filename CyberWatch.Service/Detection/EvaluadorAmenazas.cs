@@ -15,6 +15,12 @@ public class EvaluadorAmenazas : IEvaluadorAmenazas
 
     public ReporteAmenaza? Evaluar(List<EventoArchivo> eventos, string nombreProceso)
     {
+        if (string.IsNullOrWhiteSpace(nombreProceso))
+            return null;
+
+        if (EstaExcluido(nombreProceso))
+            return null;
+
         bool escriturasSospechosas  = SuperaUmbralEscritura(eventos, nombreProceso);
         bool renombradosSospechosas = SuperaUmbralRenombrados(eventos, nombreProceso);
         bool extensionSospechosa    = eventos.Any(TieneExtensionSospechosa);
@@ -23,6 +29,18 @@ public class EvaluadorAmenazas : IEvaluadorAmenazas
             return new ReporteAmenaza(nombreProceso, escriturasSospechosas, renombradosSospechosas, extensionSospechosa);
 
         return null;
+    }
+
+    private bool EstaExcluido(string nombreProceso)
+    {
+        var nombre = nombreProceso.Trim();
+        if (nombre.Length == 0) return true;
+        var sinExt = nombre.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? nombre[..^4]
+            : nombre;
+        return _umbrales.ProcesosExcluidos.Any(excluido =>
+            string.Equals(excluido.Trim(), nombre, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(excluido.Trim(), sinExt, StringComparison.OrdinalIgnoreCase));
     }
 
     public bool TieneExtensionSospechosa(EventoArchivo evento)

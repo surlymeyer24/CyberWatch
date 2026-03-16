@@ -19,7 +19,7 @@ El UserAgent no tiene ventana visible (`WinExe`) y es lanzado automáticamente p
 ### Flujo de comunicación
 
 ```
-Dashboard (web) ──── Firestore ───► Service (Session 0)
+Dashboard (React, `Front/`) ──── Firestore ───► Service (Session 0)
                                         │
                                    Named Pipe (CyberWatch_AgentPipe)
                                         │
@@ -38,7 +38,7 @@ Dashboard (web) ──── Firestore ───► Service (Session 0)
 | `CyberWatch.Service` | Worker Service | Servicio Windows principal (Session 0) |
 | `CyberWatch.UserAgent` | WinExe | Agente en sesión de usuario (invisible) |
 | `CyberWatch.Shared` | Library | Modelos, config y logging compartidos |
-| `CyberWatch.Dashboard` | ASP.NET Core Web | Dashboard de monitoreo (web) |
+| `Front` | React (Vite + TypeScript) | Dashboard de monitoreo (web), conectado a Firestore en tiempo real |
 | `CyberWatch.DumpFirestore` | Console | Utilidad de backup/debug de Firestore |
 | `CyberWatch.Tests` | xUnit | Pruebas unitarias |
 
@@ -51,8 +51,10 @@ Dashboard (web) ──── Firestore ───► Service (Session 0)
 | Colección | Contenido |
 |---|---|
 | `cyberwatch_instancias/{machineId}` | Registro de cada máquina: hostname, IP, versión, geolocalización IP y GPS, última conexión, comando remoto |
-| `alertas` | Detecciones de amenazas ransomware |
+| `cyberwatch_instancias/{machineId}/alertas/` | Subcollection de alertas por máquina (ransomware y eventos de seguridad). Dedup: no se crea alerta duplicada si ya existe una con los mismos campos clave en los últimos 10 minutos |
 | `config/ciberseguridad` | Configuración global: versión actual y URL de descarga para actualizaciones |
+
+> **Nota:** El Dashboard lee alertas de todas las máquinas usando `CollectionGroup("alertas")`. Requiere un **single field index exemption** en Firestore para el campo `fechaHora` con scope "Collection group" (Descending).
 
 ### Campos de `cyberwatch_instancias`
 
@@ -134,8 +136,7 @@ El ID de máquina se deriva del UUID de hardware via WMI (`Win32_ComputerSystemP
 
 ### Refactoring pendiente
 
-- [ ] Ítem 7: Dashboard monolítico (`Program.cs` > 400 líneas)
+- [x] Dashboard migrado a React en `Front/` (Vite + TypeScript + Firestore)
+- [ ] Ítem 7: ~~Dashboard monolítico~~ (opcional: retirar `CyberWatch.Dashboard` .NET si ya no se usa)
 - [ ] Ítem 8: Consistencia en signed URLs de Firebase Storage
-- [ ] Centralizar `LeerMachineId()` — duplicado en 7 archivos → mover a `MachineIdService` en Shared
-- [ ] Crear POCO `Alerta` tipado — actualmente se usan `Dictionary<string,object>` en varios servicios
 - [ ] `MonitorActividadArchivos.Eventos` sin límite de tamaño (`ConcurrentBag` sin cap)
