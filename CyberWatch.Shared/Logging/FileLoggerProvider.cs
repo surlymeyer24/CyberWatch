@@ -13,6 +13,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
     public FileLoggerProvider(string logFileName, string? basePath = null, LogLevel minLevel = LogLevel.Information)
     {
         var dir = string.IsNullOrEmpty(basePath) ? AppDomain.CurrentDomain.BaseDirectory : basePath;
+        Directory.CreateDirectory(dir);
         _logFilePath = Path.Combine(dir, logFileName);
         _minLevel = minLevel;
     }

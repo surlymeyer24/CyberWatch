@@ -18,7 +18,9 @@ public class CapturaService : BackgroundService
     private readonly ILogger<CapturaService> _logger;
     private readonly FirebaseSettings _firebase;
     private static readonly string _directorioCapturas =
-        Path.Combine(AppContext.BaseDirectory, "capturas");
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CyberWatch", "capturas");
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);

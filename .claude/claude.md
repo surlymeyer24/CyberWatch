@@ -67,3 +67,25 @@ Cuando el usuario mencione una idea, problema o posible cambio — sin importar 
 3. Una vez que el usuario diga "apruebo", "está bien", o similar — preguntar explícitamente "¿Empiezo?" antes de ejecutar cualquier acción.
 
 Solo ejecutar cuando el usuario confirme esa última pregunta.
+
+---
+
+## Consultar README.md al inicio de cada conversación
+
+Al comenzar cualquier tarea, leer `README.md` en la raíz del repo para tener el contexto actualizado del proyecto: arquitectura, estado actual, bugs abiertos y pendientes.
+
+**Regla:** Antes de proponer cualquier cambio, verificar si el README tiene información relevante sobre el componente o área que se va a modificar.
+
+---
+
+## Mantener README.md actualizado
+
+Cada vez que se implemente un cambio significativo (nueva feature, fix de bug, cambio arquitectónico, nuevo pendiente resuelto), actualizar `README.md` para reflejar el estado actual del proyecto.
+
+**Qué actualizar según el caso:**
+- Bug resuelto → removerlo de "Bugs abiertos" o marcarlo como resuelto
+- Nueva funcionalidad → agregarla en la sección correspondiente (arquitectura, colecciones, comandos, logs)
+- Pendiente completado → removerlo de "Refactoring pendiente"
+- Cambio de paths, nombres o comportamiento → actualizar tablas y descripciones
+
+**Regla:** El README es la fuente de verdad del estado del proyecto. Si el código cambió, el README debe reflejar ese cambio.

@@ -73,10 +73,36 @@ public class EjecutorTareasFirebaseService : BackgroundService
             if (snap.Exists && snap.TryGetValue<string>("comando_estado", out var estadoActual)
                 && estadoActual == "reiniciando")
             {
+                // Leer log del batch script para incluirlo en el resultado
+                var updateLogPath = Path.Combine(Path.GetTempPath(), "cw_update.log");
+                var logContent = "";
+                if (File.Exists(updateLogPath))
+                {
+                    logContent = File.ReadAllText(updateLogPath);
+                    _logger.LogInformation("Log de actualización:\n{Log}", logContent);
+                }
+                else
+                {
+                    _logger.LogWarning("No se encontró cw_update.log en {Path}", updateLogPath);
+                }
+
+                // Asegurar que la tarea del UserAgent exista y ejecutarla
+                var exePath = Path.Combine(AppContext.BaseDirectory, "CyberWatch.UserAgent.exe");
+                var uaInfo = "";
+                if (File.Exists(exePath))
+                {
+                    uaInfo = AsegurarYEjecutarTareaUserAgent(exePath);
+                }
+                else
+                {
+                    uaInfo = "CyberWatch.UserAgent.exe no encontrado.";
+                    _logger.LogWarning("CyberWatch.UserAgent.exe no encontrado en {Dir}", AppContext.BaseDirectory);
+                }
+
                 await ActualizarDocAsync(docRef, new Dictionary<string, object>
                 {
                     ["comando_estado"]    = "completado",
-                    ["comando_resultado"] = $"Actualización aplicada correctamente. Versión: {_app.Version}"
+                    ["comando_resultado"] = $"Versión: {_app.Version}. {uaInfo}\nLog batch:\n{logContent}"
                 }, stoppingToken);
                 _logger.LogInformation("Actualización previa completada. Versión: {Version}", _app.Version);
             }
@@ -222,15 +248,24 @@ public class EjecutorTareasFirebaseService : BackgroundService
         var logPath = Path.Combine(Path.GetTempPath(), "cw_update.log");
         File.WriteAllText(scriptPath,
             $"@echo off\r\n" +
-            $"echo [%DATE% %TIME%] Iniciando actualizacion >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] === INICIO ACTUALIZACION === >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] Install dir: {installDir} >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] Extract path: {extractPath} >> \"{logPath}\"\r\n" +
             $"timeout /t 3 /nobreak >nul\r\n" +
+            $"echo [%DATE% %TIME%] Deteniendo servicio CyberWatch... >> \"{logPath}\"\r\n" +
             $"net stop CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] net stop exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] Matando CyberWatch.UserAgent.exe... >> \"{logPath}\"\r\n" +
             $"taskkill /F /IM CyberWatch.UserAgent.exe /T >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] taskkill exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
             $"timeout /t 2 /nobreak >nul\r\n" +
+            $"echo [%DATE% %TIME%] Copiando archivos... >> \"{logPath}\"\r\n" +
             $"xcopy /E /I /Y \"{extractPath}\\*\" \"{installDir}\\\" >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] xcopy exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch... >> \"{logPath}\"\r\n" +
             $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
-            $"schtasks /Run /TN \"CyberWatch\\UserAgent\" >> \"{logPath}\" 2>&1\r\n" +
-            $"echo [%DATE% %TIME%] Actualizacion finalizada >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] net start exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] === FIN ACTUALIZACION === >> \"{logPath}\"\r\n" +
             $"rd /s /q \"{extractPath}\"\r\n" +
             $"del \"{zipPath}\"\r\n" +
             $"del \"%~f0\"\r\n");
@@ -259,6 +294,59 @@ public class EjecutorTareasFirebaseService : BackgroundService
     {
         try { await docRef.UpdateAsync(campos); }
         catch (Exception ex) { _logger.LogWarning(ex, "No se pudo actualizar el documento."); }
+    }
+
+    private string AsegurarYEjecutarTareaUserAgent(string exePath)
+    {
+        var result = "";
+        try
+        {
+            // Generar XML y crear la tarea con /F (fuerza creación aunque exista)
+            var xml = RegistradorTareaUsuarioService.GenerarXmlTarea(exePath);
+            var xmlPath = Path.Combine(Path.GetTempPath(), "cyberwatch_useragent_task.xml");
+            File.WriteAllText(xmlPath, xml, System.Text.Encoding.Unicode);
+
+            try
+            {
+                _logger.LogInformation("Registrando tarea UserAgent (forzado)...");
+                var (creado, msgCreate) = EjecutarProceso("schtasks",
+                    $"/Create /TN \"CyberWatch\\UserAgent\" /XML \"{xmlPath}\" /F");
+                _logger.LogInformation("schtasks /Create: ok={Ok}, output={Msg}", creado, msgCreate);
+                result += creado ? "Tarea registrada OK. " : $"Tarea no registrada: {msgCreate}. ";
+            }
+            finally
+            {
+                File.Delete(xmlPath);
+            }
+
+            _logger.LogInformation("Ejecutando tarea UserAgent...");
+            var (ejecutado, msgRun) = EjecutarProceso("schtasks",
+                "/Run /TN \"CyberWatch\\UserAgent\"");
+            _logger.LogInformation("schtasks /Run: ok={Ok}, output={Msg}", ejecutado, msgRun);
+            result += ejecutado ? "UserAgent iniciado OK." : $"UserAgent no iniciado: {msgRun}.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error al asegurar/ejecutar tarea UserAgent.");
+            result += $"Error: {ex.Message}";
+        }
+        return result;
+    }
+
+    private static (bool success, string output) EjecutarProceso(string fileName, string args)
+    {
+        var info = new ProcessStartInfo(fileName, args)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute = false,
+            CreateNoWindow  = true
+        };
+        using var proc = Process.Start(info);
+        var stdout = proc?.StandardOutput.ReadToEnd() ?? "";
+        var stderr = proc?.StandardError.ReadToEnd() ?? "";
+        proc?.WaitForExit();
+        return (proc?.ExitCode == 0, $"{stdout}{stderr}".Trim());
     }
 
     private static string? GetStr(Dictionary<string, object> d, string key) =>
