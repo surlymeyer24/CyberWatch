@@ -39,6 +39,9 @@ public class Alerta
     [FirestoreProperty("extensionSospechosa")]
     public bool? ExtensionSospechosa { get; set; }
 
+    [FirestoreProperty("extensionDetectada")]
+    public string? ExtensionDetectada { get; set; }
+
     // ── Alerta de evento de seguridad (SecurityEventMonitorService) ───────────
 
     [FirestoreProperty("tipo")]

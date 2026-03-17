@@ -89,3 +89,29 @@ Cada vez que se implemente un cambio significativo (nueva feature, fix de bug, c
 - Cambio de paths, nombres o comportamiento → actualizar tablas y descripciones
 
 **Regla:** El README es la fuente de verdad del estado del proyecto. Si el código cambió, el README debe reflejar ese cambio.
+
+---
+
+## Publish self-contained: incluir archivos de configuración
+
+**Error cometido:** Al generar el comando `dotnet publish` con `PublishSingleFile`,
+no se mencionaron los archivos de configuración necesarios (`appsettings.json`,
+`serviceAccountKey.json`). Estos archivos tienen `CopyToOutputDirectory` en el
+`.csproj` pero NO se embeben dentro del single-file — quedan como archivos sueltos
+que deben estar junto al `.exe`.
+
+**Regla:** Al dar comandos de publish/deploy, SIEMPRE recordar que estos archivos
+deben estar en la carpeta de salida:
+- `appsettings.json` (configuración de Firebase, umbrales, etc.)
+- `serviceAccountKey.json` (credenciales de Firebase)
+- `install.bat` (si aplica, para registrar el servicio)
+
+**Comando completo de publish (self-contained, single-file, ambos servicios):**
+
+```bash
+dotnet publish CyberWatch.Service/CyberWatch.Service.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish && dotnet publish CyberWatch.UserAgent/CyberWatch.UserAgent.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish && cp auth/serviceAccountKey.json ./publish/ && cp CyberWatch.Service/appsettings.json ./publish/
+```
+
+**Nota:** `appsettings.json` se copia automáticamente por `CopyToOutputDirectory` del `.csproj`.
+`serviceAccountKey.json` no está en el `.csproj`, se copia manualmente.
+`install.bat` se copia por el target `CopiarInstaller` del Service `.csproj`.

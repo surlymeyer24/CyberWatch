@@ -3,6 +3,7 @@ using CyberWatch.Service.Detection;
 using CyberWatch.Service.Monitoring;
 using CyberWatch.Service.Response;
 using CyberWatch.Service.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CyberWatch.Service;
@@ -17,6 +18,7 @@ public class ServicioCyberWatch : BackgroundService
     private readonly AgentePipeServerService  _pipeServer;
     private readonly RastreadorProcesos       _rastreador;
     private readonly UmbralesSettings         _umbrales;
+    private readonly ILogger<ServicioCyberWatch> _logger;
 
     public ServicioCyberWatch(
         MonitorActividadArchivos   monitor,
@@ -26,7 +28,8 @@ public class ServicioCyberWatch : BackgroundService
         IFirebaseAlertService      firebaseAlertas,
         AgentePipeServerService    pipeServer,
         RastreadorProcesos         rastreador,
-        IOptions<UmbralesSettings> umbrales)
+        IOptions<UmbralesSettings> umbrales,
+        ILogger<ServicioCyberWatch> logger)
     {
         _monitor         = monitor;
         _evaluador       = evaluador;
@@ -36,22 +39,33 @@ public class ServicioCyberWatch : BackgroundService
         _pipeServer      = pipeServer;
         _rastreador      = rastreador;
         _umbrales        = umbrales.Value;
+        _logger          = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken tokenCancelacion)
     {
+        _logger.LogInformation("[Servicio] Iniciando monitorización...");
         _monitor.IniciarMonitorizacion();
+        _logger.LogInformation("[Servicio] Monitorización activa. Ciclo cada {Seg}s", _umbrales.IntervaloTiempoSeg);
 
         while (!tokenCancelacion.IsCancellationRequested)
         {
             try
             {
-                var snapshot = _monitor.Eventos.ToList();
-                foreach (var nombreProceso in snapshot.Select(e => e.NombreProceso).Distinct())
+                var snapshot = _monitor.TomarSnapshotYLimpiar();
+                var procesos = snapshot.Select(e => e.NombreProceso).Distinct().ToList();
+
+                if (snapshot.Count > 0)
+                    _logger.LogInformation("[Servicio] Ciclo: {Total} eventos, {Procesos} procesos: [{Lista}]",
+                        snapshot.Count, procesos.Count, string.Join(", ", procesos));
+
+                foreach (var nombreProceso in procesos)
                 {
                     var reporte = _evaluador.Evaluar(snapshot, nombreProceso);
                     if (reporte != null)
                     {
+                        _logger.LogWarning("[Servicio] AMENAZA DETECTADA: Proceso={Proceso} Escrituras={Esc} Renombrados={Ren} Extension={Ext} ExtDetectada={ExtDet}",
+                            reporte.NombreProceso, reporte.EscriturasSospechosas, reporte.RenombradosSospechosas, reporte.ExtensionSospechosa, reporte.ExtensionDetectada ?? "N/A");
                         _gestor.Alertar(reporte);
                         await _firebaseAlertas.EnviarAlertaAsync(reporte, tokenCancelacion);
                         _liquidador.Liquidar(reporte);

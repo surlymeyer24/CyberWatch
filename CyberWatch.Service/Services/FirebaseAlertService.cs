@@ -16,13 +16,12 @@ public class FirebaseAlertService : IFirebaseAlertService
     private readonly FirebaseSettings _settings;
     private readonly ILogger<FirebaseAlertService> _logger;
     private FirestoreDb? _db;
-    private readonly string _machineId;
+    private string? _machineId;
 
     public FirebaseAlertService(IOptions<FirebaseSettings> settings, ILogger<FirebaseAlertService> logger)
     {
         _settings = settings.Value;
         _logger = logger;
-        _machineId = MachineIdHelper.Read() ?? "";
 
         if (_settings.IsAdminConfigured)
         {
@@ -50,14 +49,22 @@ public class FirebaseAlertService : IFirebaseAlertService
         }
     }
 
+    private string GetMachineId()
+    {
+        if (string.IsNullOrEmpty(_machineId))
+            _machineId = MachineIdHelper.Read() ?? "";
+        return _machineId;
+    }
+
     public async Task EnviarAlertaAsync(ReporteAmenaza reporte, CancellationToken ct = default)
     {
-        if (_db == null || string.IsNullOrEmpty(_machineId)) return;
+        var machineId = GetMachineId();
+        if (_db == null || string.IsNullOrEmpty(machineId)) return;
 
         try
         {
             var col = _db.Collection(_settings.FirestoreColeccionInstancias)
-                         .Document(_machineId)
+                         .Document(machineId)
                          .Collection(_settings.FirestoreCollectionAlertas);
 
             // Dedup: no crear si ya existe alerta con mismo proceso en últimos 10 min
@@ -82,8 +89,9 @@ public class FirebaseAlertService : IFirebaseAlertService
                 EscriturasSospechosas  = reporte.EscriturasSospechosas,
                 RenombradosSospechosas = reporte.RenombradosSospechosas,
                 ExtensionSospechosa    = reporte.ExtensionSospechosa,
+                ExtensionDetectada     = reporte.ExtensionDetectada,
                 Origen                 = "CyberWatch.Service",
-                MachineId              = _machineId,
+                MachineId              = machineId,
                 Hostname               = Environment.MachineName
             };
 

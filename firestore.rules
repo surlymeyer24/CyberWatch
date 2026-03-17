@@ -29,5 +29,13 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
     }
+
+    // HW Agente (AgenteBacar) - misma BD, colecciones computadoras y tareas
+    match /computadoras/{id} {
+      allow read, write: if true;
+    }
+    match /tareas/{id} {
+      allow read, write: if true;
+    }
   }
 }

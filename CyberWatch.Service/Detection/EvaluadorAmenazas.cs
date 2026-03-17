@@ -26,7 +26,13 @@ public class EvaluadorAmenazas : IEvaluadorAmenazas
         bool extensionSospechosa    = eventos.Any(TieneExtensionSospechosa);
 
         if (escriturasSospechosas || renombradosSospechosas || extensionSospechosa)
-            return new ReporteAmenaza(nombreProceso, escriturasSospechosas, renombradosSospechosas, extensionSospechosa);
+        {
+            var extDetectada = eventos
+                .Where(e => e.TipoEvento == TipoEvento.ExtensionSospechosa)
+                .Select(e => Path.GetExtension(e.RutaArchivo).ToLower())
+                .FirstOrDefault();
+            return new ReporteAmenaza(nombreProceso, escriturasSospechosas, renombradosSospechosas, extensionSospechosa, extDetectada);
+        }
 
         return null;
     }
