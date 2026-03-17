@@ -104,7 +104,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
                     ["comando_estado"]    = "completado",
                     ["comando_resultado"] = $"Versión: {_app.Version}. {uaInfo}\nLog batch:\n{logContent}"
                 }, stoppingToken);
-                _logger.LogInformation("Actualización previa completada. Versión: {Version}", _app.Version);
+                _logger.LogInformation("[Comando] Actualización previa completada. Versión actual: {Version}", _app.Version);
             }
         }
         catch (Exception ex)
@@ -131,7 +131,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
 
             try
             {
-                _logger.LogInformation("Comando recibido: '{Comando}'", comando);
+                _logger.LogInformation("[Comando] Recibido: '{Comando}' a las {Hora}", comando, DateTime.Now.ToString("HH:mm:ss"));
 
                 // Limpiar el campo comando de inmediato para no re-ejecutar en reinicios
                 await ActualizarDocAsync(docRef, new Dictionary<string, object>
@@ -144,11 +144,13 @@ public class EjecutorTareasFirebaseService : BackgroundService
                 switch (comando.Trim().ToLowerInvariant())
                 {
                     case "actualizar_agente":
+                        _logger.LogInformation("[Comando] Iniciando actualización de agente...");
                         await EjecutarActualizacionAgenteAsync(docRef, db, ct);
+                        _logger.LogInformation("[Comando] Actualización de agente finalizada.");
                         break;
 
                     default:
-                        _logger.LogWarning("Comando desconocido: '{Cmd}'", comando);
+                        _logger.LogWarning("[Comando] Comando desconocido: '{Cmd}'", comando);
                         await ActualizarDocAsync(docRef, new Dictionary<string, object>
                         {
                             ["comando_estado"] = "error",
@@ -208,13 +210,14 @@ public class EjecutorTareasFirebaseService : BackgroundService
         var zipPath     = Path.Combine(Path.GetTempPath(), "cyberwatch_update.zip");
         var extractPath = Path.Combine(Path.GetTempPath(), "cyberwatch_update_tmp");
 
-        _logger.LogInformation("Descargando actualización desde {Url}", url);
+        _logger.LogInformation("[Comando] Descargando actualización desde {Url}...", url);
         try
         {
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Add("User-Agent", "CyberWatch-Updater/1.0");
             var bytes = await http.GetByteArrayAsync(url, ct);
             await File.WriteAllBytesAsync(zipPath, bytes, ct);
+            _logger.LogInformation("[Comando] Descarga completada: {Bytes} bytes", bytes.Length);
         }
         catch (Exception ex)
         {
@@ -277,7 +280,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
             UseShellExecute = false
         });
 
-        _logger.LogInformation("Script de actualización lanzado. El servicio se reiniciará.");
+        _logger.LogInformation("[Comando] Script de actualización lanzado. El servicio se reiniciará.");
 
         // 6. Marcar estado antes de que el servicio se detenga
         await ActualizarDocAsync(docRef, new Dictionary<string, object>

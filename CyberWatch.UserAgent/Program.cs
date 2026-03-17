@@ -25,6 +25,7 @@ try
             services.AddHostedService<UbicacionService>();
             services.AddHostedService<PipClientService>();
             services.AddHostedService<ComandoService>();
+            services.AddHostedService<HistorialNavegacionService>();
         })
         .Build();
 

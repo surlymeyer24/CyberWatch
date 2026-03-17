@@ -90,6 +90,11 @@ public class InstanciaMaquina
     [FirestoreProperty("alertas_sistema")]
     public List<Dictionary<string, object>> AlertasSistema { get; set; } = [];
 
+    // Historial de navegación (UserAgent) ---------------------
+
+    [FirestoreProperty("ultima_sync_historial")]
+    public Timestamp? UltimaSyncHistorial { get; set; }
+
     // Comandos remotos --------------------------------------
 
     [FirestoreProperty("comando")]

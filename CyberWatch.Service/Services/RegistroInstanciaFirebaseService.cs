@@ -150,7 +150,11 @@ public class RegistroInstanciaFirebaseService : BackgroundService
 
         var refDoc = _db.Collection(_firebase.FirestoreColeccionInstancias).Document(_machineId);
         await refDoc.SetAsync(instancia, SetOptions.MergeFields(campos.ToArray()), ct).ConfigureAwait(false);
-        _logger.LogDebug("Instancia registrada: {Hostname} ({Version})", hostname, _app.Version);
+        _logger.LogInformation("[RegistroInstancia] Datos actualizados: {Hostname} v{Version} | IP: {Ip} | Geo: {Ciudad},{Pais} | BitLocker: {BL} | Firewall: {FW} | Admins: [{Admins}]",
+            hostname, _app.Version, ipLocal ?? "N/A",
+            _geoCache?.Ciudad ?? "N/A", _geoCache?.Pais ?? "N/A",
+            instancia.BitlockerActivo, instancia.FirewallActivo,
+            string.Join(", ", instancia.AdminsLocales ?? new List<string>()));
     }
 
     private static string ObtenerOCrearMachineId()

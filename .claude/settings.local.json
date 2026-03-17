@@ -22,7 +22,11 @@
       "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build \"c:/Users/Usr/Documents/CyberWatch/CyberWatch.Shared/CyberWatch.Shared.csproj\")",
       "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.Service/CyberWatch.Service.csproj -c Release)",
       "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.UserAgent/CyberWatch.UserAgent.csproj -c Release)",
-      "Bash(find . -type f \\\\\\(-name *update* -o -name *actualizar* -o -name *actualizacion* \\\\\\))"
+      "Bash(find . -type f \\\\\\(-name *update* -o -name *actualizar* -o -name *actualizacion* \\\\\\))",
+      "Bash(dotnet publish:*)",
+      "Bash(cp auth/serviceAccountKey.json ./publish/)",
+      "Bash(cp CyberWatch.Service/appsettings.json ./publish/)",
+      "Bash(dotnet add:*)"
     ]
   }
 }
