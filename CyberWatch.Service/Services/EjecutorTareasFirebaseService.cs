@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Http;
@@ -288,9 +289,11 @@ public class EjecutorTareasFirebaseService : BackgroundService
 
         // 5. Programar el script dentro de 10 s con Task Scheduler (no como hijo del servicio).
         // Así cuando el batch haga "net stop CyberWatch" el proceso del batch no se mata.
+        // Fecha/hora en formato de la cultura actual para que schtasks acepte (ej. dd/MM/yyyy en español).
         var runAt = DateTime.Now.AddSeconds(10);
-        var st = runAt.ToString("HH:mm");
-        var sd = runAt.ToString("MM/dd/yyyy");
+        var culture = CultureInfo.CurrentCulture;
+        var st = runAt.ToString("HH:mm", CultureInfo.InvariantCulture);
+        var sd = runAt.ToString(culture.DateTimeFormat.ShortDatePattern, culture);
         var (taskOk, taskMsg) = EjecutarProceso("schtasks",
             $"/Create /TN \"CyberWatch\\Update\" /TR \"cmd /c \\\"{scriptPath}\\\"\" /SC ONCE /ST {st} /SD {sd} /F /RU SYSTEM");
         if (!taskOk)
@@ -335,8 +338,9 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $"del \"%~f0\"\r\n");
 
         var runAt = DateTime.Now.AddSeconds(5);
-        var st = runAt.ToString("HH:mm");
-        var sd = runAt.ToString("MM/dd/yyyy");
+        var culture = CultureInfo.CurrentCulture;
+        var st = runAt.ToString("HH:mm", CultureInfo.InvariantCulture);
+        var sd = runAt.ToString(culture.DateTimeFormat.ShortDatePattern, culture);
         var (taskOk, _) = EjecutarProceso("schtasks",
             $"/Create /TN \"CyberWatch\\Restart\" /TR \"cmd /c \\\"{scriptPath}\\\"\" /SC ONCE /ST {st} /SD {sd} /F /RU SYSTEM");
         if (!taskOk)

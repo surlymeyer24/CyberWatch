@@ -76,7 +76,39 @@ El resultado queda en **`publish_output`** (y opcionalmente **`CyberWatch.Servic
 
 ---
 
-## 4. Instalación en la máquina destino
+## 4. Cuando la actualización remota no funciona
+
+Si el comando **actualizar_agente** desde el Dashboard no aplica la nueva versión (el servicio se detiene pero al reiniciar sigue la versión antigua), podés **actualizar manualmente** con el mismo paquete que usarías para una primera instalación.
+
+### Pasos (en la PC a actualizar)
+
+1. **Conseguir el paquete actualizado**
+   - **Opción A:** En GitHub → **Releases** → descargar el ZIP del último release (ej. `CyberWatch-v2.1.0.zip`).
+   - **Opción B:** En tu máquina de desarrollo, generar el paquete local:
+     ```powershell
+     .\publish-local.ps1 -CredentialPath "auth\serviceAccountKey.json" -CreateZip
+     ```
+     Luego copiar la carpeta **`publish_output`** o el **`CyberWatch.Service.zip`** a la PC destino (USB, red, etc.).
+
+2. **En la PC donde ya está instalado CyberWatch**
+   - Copiar el contenido del ZIP (o de `publish_output`) a una carpeta temporal, ej. `C:\Temp\CyberWatchUpdate`.
+   - Abrir **PowerShell o Símbolo del sistema como administrador** (clic derecho → “Ejecutar como administrador”).
+   - Ir a esa carpeta y ejecutar:
+     ```powershell
+     cd "C:\Temp\CyberWatchUpdate"
+     .\install.bat
+     ```
+
+3. **Qué hace `install.bat`**
+   - Copia todos los archivos (incluidos los .exe y `appsettings.json`) a **`C:\Program Files\CyberWatch`**, sobrescribiendo los existentes.
+   - Si el servicio ya existe: lo detiene, actualiza la ruta del binario y lo inicia de nuevo.
+   - No borra `serviceAccountKey.json` si ya estaba; si el ZIP incluye credenciales, las sobrescribe.
+
+Tras ejecutar `install.bat`, el servicio y el UserAgent quedan con la nueva versión. No hace falta desinstalar nada: es una actualización en el mismo directorio.
+
+---
+
+## 5. Instalación en la máquina destino (primera vez)
 
 1. Copiar la carpeta descomprimida (o el contenido del ZIP) a la máquina (ej. Escritorio o `C:\Temp\CyberWatch`).
 2. Abrir una ventana **como administrador** (clic derecho en Símbolo del sistema o PowerShell → “Ejecutar como administrador”).
@@ -97,7 +129,7 @@ Tras la instalación:
 
 ---
 
-## 5. Resumen del contenido del paquete
+## 6. Resumen del contenido del paquete
 
 | Archivo / carpeta        | Origen        | Uso |
 |--------------------------|---------------|-----|
@@ -109,7 +141,7 @@ Tras la instalación:
 
 ---
 
-## 6. Una PC no aparece en el dashboard
+## 7. Una PC no aparece en el dashboard
 
 El dashboard muestra todas las instancias de la colección **cyberwatch_instancias** en Firestore. Si instalaste en otra PC y no la ves:
 
