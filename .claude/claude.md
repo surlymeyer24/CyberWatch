@@ -92,6 +92,16 @@ Cada vez que se implemente un cambio significativo (nueva feature, fix de bug, c
 
 ---
 
+## Recordar push antes del release
+
+Al terminar de implementar una funcionalidad o fix, SIEMPRE recordar al usuario:
+
+> "Antes de hacer el release, no olvides hacer `git push` para que el código esté en el repositorio remoto."
+
+**Por qué:** El deploy remoto descarga el ZIP desde una URL (GitHub Releases). Si el código no fue pusheado y taggeado antes de crear el release, el ZIP no incluirá los cambios nuevos.
+
+---
+
 ## Publish self-contained: incluir archivos de configuración
 
 **Error cometido:** Al generar el comando `dotnet publish` con `PublishSingleFile`,

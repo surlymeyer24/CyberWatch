@@ -150,6 +150,13 @@ public class EjecutorTareasFirebaseService : BackgroundService
                         await Task.Delay(Timeout.Infinite, ct);
                         break;
 
+                    case "reiniciar_servicio":
+                        _logger.LogInformation("[Comando] Iniciando reinicio del servicio...");
+                        await EjecutarReinicioServicioAsync(docRef, ct);
+                        _logger.LogInformation("[Comando] Script de reinicio lanzado. Esperando shutdown.");
+                        await Task.Delay(Timeout.Infinite, ct);
+                        break;
+
                     default:
                         _logger.LogWarning("[Comando] Comando desconocido: '{Cmd}'", comando);
                         await ActualizarDocAsync(docRef, new Dictionary<string, object>
@@ -288,6 +295,39 @@ public class EjecutorTareasFirebaseService : BackgroundService
         {
             ["comando_estado"]    = "reiniciando",
             ["comando_resultado"] = $"Descargado desde {url}. El servicio se reiniciará en segundos."
+        }, ct);
+    }
+
+    // ── Reinicio remoto ───────────────────────────────────────────────────────
+
+    private async Task EjecutarReinicioServicioAsync(DocumentReference docRef, CancellationToken ct)
+    {
+        var scriptPath = Path.Combine(Path.GetTempPath(), "cw_restart.bat");
+        var logPath    = Path.Combine(Path.GetTempPath(), "cw_update.log");
+
+        File.WriteAllText(scriptPath,
+            $"@echo off\r\n" +
+            $"echo [%DATE% %TIME%] === REINICIO MANUAL === >> \"{logPath}\"\r\n" +
+            $"timeout /t 3 /nobreak >nul\r\n" +
+            $"echo [%DATE% %TIME%] Deteniendo servicio CyberWatch... >> \"{logPath}\"\r\n" +
+            $"net stop CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch... >> \"{logPath}\"\r\n" +
+            $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] === FIN REINICIO === >> \"{logPath}\"\r\n" +
+            $"del \"%~f0\"\r\n");
+
+        Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"")
+        {
+            CreateNoWindow  = true,
+            UseShellExecute = false
+        });
+
+        _logger.LogInformation("[Comando] Script de reinicio lanzado.");
+
+        await ActualizarDocAsync(docRef, new Dictionary<string, object>
+        {
+            ["comando_estado"]    = "reiniciando",
+            ["comando_resultado"] = "El servicio se reiniciará en segundos."
         }, ct);
     }
 
