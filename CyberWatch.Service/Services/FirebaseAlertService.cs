@@ -56,7 +56,10 @@ public class FirebaseAlertService : IFirebaseAlertService
         return _machineId;
     }
 
-    public async Task EnviarAlertaAsync(ReporteAmenaza reporte, CancellationToken ct = default)
+    public Task EnviarAlertaAsync(ReporteAmenaza reporte, CancellationToken ct = default)
+        => EnviarAlertaAsync(reporte, null, ct);
+
+    public async Task EnviarAlertaAsync(ReporteAmenaza reporte, ResultadoCuarentena? cuarentena, CancellationToken ct = default)
     {
         var machineId = GetMachineId();
         if (_db == null || string.IsNullOrEmpty(machineId)) return;
@@ -90,6 +93,10 @@ public class FirebaseAlertService : IFirebaseAlertService
                 RenombradosSospechosas = reporte.RenombradosSospechosas,
                 ExtensionSospechosa    = reporte.ExtensionSospechosa,
                 ExtensionDetectada     = reporte.ExtensionDetectada,
+                RutaEjecutableOriginal = reporte.RutaEjecutable,
+                CuarentenaExitosa      = cuarentena?.Exitosa,
+                RutaCuarentena         = cuarentena?.RutaCuarentena,
+                CuarentenaError        = cuarentena?.Error,
                 Origen                 = "CyberWatch.Service",
                 MachineId              = machineId,
                 Hostname               = Environment.MachineName

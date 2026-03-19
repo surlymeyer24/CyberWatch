@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CyberWatch.Service.Config;
 using CyberWatch.Service.Detection;
 using CyberWatch.Service.Monitoring;
@@ -14,6 +15,7 @@ public class ServicioCyberWatch : BackgroundService
     private readonly IEvaluadorAmenazas       _evaluador;
     private readonly IGestorAlertas           _gestor;
     private readonly ILiquidadorProcesos      _liquidador;
+    private readonly ICuarentena             _cuarentena;
     private readonly IFirebaseAlertService    _firebaseAlertas;
     private readonly AgentePipeServerService  _pipeServer;
     private readonly RastreadorProcesos       _rastreador;
@@ -25,6 +27,7 @@ public class ServicioCyberWatch : BackgroundService
         IEvaluadorAmenazas         evaluador,
         IGestorAlertas             gestor,
         ILiquidadorProcesos        liquidador,
+        ICuarentena                cuarentena,
         IFirebaseAlertService      firebaseAlertas,
         AgentePipeServerService    pipeServer,
         RastreadorProcesos         rastreador,
@@ -35,6 +38,7 @@ public class ServicioCyberWatch : BackgroundService
         _evaluador       = evaluador;
         _gestor          = gestor;
         _liquidador      = liquidador;
+        _cuarentena      = cuarentena;
         _firebaseAlertas = firebaseAlertas;
         _pipeServer      = pipeServer;
         _rastreador      = rastreador;
@@ -64,11 +68,21 @@ public class ServicioCyberWatch : BackgroundService
                     var reporte = _evaluador.Evaluar(snapshot, nombreProceso);
                     if (reporte != null)
                     {
-                        _logger.LogWarning("[Servicio] AMENAZA DETECTADA: Proceso={Proceso} Escrituras={Esc} Renombrados={Ren} Extension={Ext} ExtDetectada={ExtDet}",
-                            reporte.NombreProceso, reporte.EscriturasSospechosas, reporte.RenombradosSospechosas, reporte.ExtensionSospechosa, reporte.ExtensionDetectada ?? "N/A");
+                        reporte.RutaEjecutable = ResolverRutaEjecutable(reporte.NombreProceso);
+
+                        _logger.LogWarning("[Servicio] AMENAZA DETECTADA: Proceso={Proceso} Escrituras={Esc} Renombrados={Ren} Extension={Ext} ExtDetectada={ExtDet} Ruta={Ruta}",
+                            reporte.NombreProceso, reporte.EscriturasSospechosas, reporte.RenombradosSospechosas,
+                            reporte.ExtensionSospechosa, reporte.ExtensionDetectada ?? "N/A", reporte.RutaEjecutable ?? "N/A");
+
                         _gestor.Alertar(reporte);
-                        await _firebaseAlertas.EnviarAlertaAsync(reporte, tokenCancelacion);
                         _liquidador.Liquidar(reporte);
+
+                        var resultadoCuarentena = _cuarentena.Cuarentenar(reporte);
+                        if (!resultadoCuarentena.Exitosa)
+                            _logger.LogWarning("[Servicio] Cuarentena fallida para {Proceso}: {Error}",
+                                reporte.NombreProceso, resultadoCuarentena.Error);
+
+                        await _firebaseAlertas.EnviarAlertaAsync(reporte, resultadoCuarentena, tokenCancelacion);
                         await _pipeServer.NotificarAmenazaAsync(reporte.NombreProceso, tokenCancelacion);
                     }
                 }
@@ -78,6 +92,20 @@ public class ServicioCyberWatch : BackgroundService
                 await Task.Delay(TimeSpan.FromSeconds(_umbrales.IntervaloTiempoSeg), tokenCancelacion);
             }
             catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private string? ResolverRutaEjecutable(string nombreProceso)
+    {
+        try
+        {
+            var proceso = Process.GetProcessesByName(nombreProceso).FirstOrDefault();
+            return proceso?.MainModule?.FileName;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Servicio] No se pudo obtener ruta del ejecutable para {Proceso}", nombreProceso);
+            return null;
         }
     }
 

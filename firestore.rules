@@ -16,6 +16,11 @@ service cloud.firestore {
         allow create: if true;
         allow update, delete: if false;
       }
+
+      // Subcolección historial de navegación: UserAgent escribe; dashboard lee
+      match /historial_navegacion/{entryId} {
+        allow read, write: if true;
+      }
     }
 
     // Configuración global: solo backend (o manual) escribe; dashboard lee

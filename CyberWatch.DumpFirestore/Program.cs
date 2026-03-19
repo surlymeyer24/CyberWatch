@@ -110,6 +110,89 @@ if (db == null)
     Environment.Exit(1);
 }
 
+// ── Modo limpieza ──────────────────────────────────────────────────────
+if (args.Contains("--limpiar"))
+{
+    Console.WriteLine("=== MODO LIMPIEZA (proyecto: {0}) ===", projectId);
+    Console.WriteLine();
+
+    var cambios = new List<string>();
+
+    // 1. Colecciones vacías: alertas, agente, services
+    foreach (var colVacia in new[] { "alertas", "agente", "services" })
+    {
+        var snap = await db.Collection(colVacia).Limit(1).GetSnapshotAsync();
+        if (snap.Count == 0)
+        {
+            cambios.Add($"  [OK] Colección '{colVacia}' ya está vacía (Firestore la elimina automáticamente)");
+        }
+        else
+        {
+            cambios.Add($"  [!] Colección '{colVacia}' tiene {snap.Count}+ docs — NO se borrará (revisar manualmente)");
+        }
+    }
+
+    // 2. config/ciberseguridad — borrar campo "url" viejo
+    cambios.Add("  [WRITE] config/ciberseguridad → borrar campo 'url' (apunta a v1.1.0 obsoleto)");
+
+    // 3. cyberwatch_instancias — limpiar campos sucios
+    cambios.Add("  [WRITE] cyberwatch_instancias/4ea0ce0d-9b4c-4095-941e-aebd0a6375a4 → borrar lat_gps, lon_gps, precision_gps, ultima_ubicacion_gps (GPS falso), resetear comando_ua_estado");
+    cambios.Add("  [WRITE] cyberwatch_instancias/5859a1a8-c141-0000-0000-000000000000 → borrar comando_resultado (log de update fallido)");
+    cambios.Add("  [WRITE] cyberwatch_instancias/cc558c80-5224-1208-b779-197243e51900 → resetear comando y comando_estado (actualizar_agente trabado)");
+
+    Console.WriteLine("Cambios a realizar:");
+    foreach (var c in cambios) Console.WriteLine(c);
+    Console.WriteLine();
+    Console.Write("¿Ejecutar? (s/N): ");
+    var respuesta = Console.ReadLine()?.Trim().ToLower();
+    if (respuesta != "s")
+    {
+        Console.WriteLine("Cancelado.");
+        Environment.Exit(0);
+    }
+
+    Console.WriteLine();
+
+    // Ejecutar limpieza
+    // 2. config/ciberseguridad
+    await db.Document("config/ciberseguridad").UpdateAsync(new Dictionary<string, object>
+    {
+        ["url"] = FieldValue.Delete
+    });
+    Console.WriteLine("[OK] config/ciberseguridad → campo 'url' eliminado");
+
+    // 3a. VM — borrar GPS falso y resetear comando_ua_estado
+    await db.Document("cyberwatch_instancias/4ea0ce0d-9b4c-4095-941e-aebd0a6375a4").UpdateAsync(new Dictionary<string, object>
+    {
+        ["lat_gps"] = FieldValue.Delete,
+        ["lon_gps"] = FieldValue.Delete,
+        ["precision_gps"] = FieldValue.Delete,
+        ["ultima_ubicacion_gps"] = FieldValue.Delete,
+        ["comando_ua_estado"] = ""
+    });
+    Console.WriteLine("[OK] cyberwatch_instancias/4ea0ce0d-... → GPS falso eliminado, comando_ua_estado reseteado");
+
+    // 3b. Dev — borrar comando_resultado
+    await db.Document("cyberwatch_instancias/5859a1a8-c141-0000-0000-000000000000").UpdateAsync(new Dictionary<string, object>
+    {
+        ["comando_resultado"] = FieldValue.Delete
+    });
+    Console.WriteLine("[OK] cyberwatch_instancias/5859a1a8-... → comando_resultado eliminado");
+
+    // 3c. Producción — resetear comando trabado
+    await db.Document("cyberwatch_instancias/cc558c80-5224-1208-b779-197243e51900").UpdateAsync(new Dictionary<string, object>
+    {
+        ["comando"] = "",
+        ["comando_estado"] = ""
+    });
+    Console.WriteLine("[OK] cyberwatch_instancias/cc558c80-... → comando y comando_estado reseteados");
+
+    Console.WriteLine();
+    Console.WriteLine("=== LIMPIEZA COMPLETADA ===");
+    Console.WriteLine("Ejecutá sin --limpiar para hacer un dump y verificar los cambios.");
+    Environment.Exit(0);
+}
+
 Console.WriteLine("Leyendo Firestore (proyecto: {0})...", projectId);
 
 // Descubrir todas las colecciones raíz automáticamente y combinar con la lista configurada

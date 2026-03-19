@@ -26,7 +26,10 @@
       "Bash(dotnet publish:*)",
       "Bash(cp auth/serviceAccountKey.json ./publish/)",
       "Bash(cp CyberWatch.Service/appsettings.json ./publish/)",
-      "Bash(dotnet add:*)"
+      "Bash(dotnet add:*)",
+      "Bash(ls C:/Users/Usr/Documents/CyberWatch/*.sln)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(dotnet new:*)"
     ]
   }
 }

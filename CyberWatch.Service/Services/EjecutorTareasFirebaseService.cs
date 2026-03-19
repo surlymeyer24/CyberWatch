@@ -146,7 +146,8 @@ public class EjecutorTareasFirebaseService : BackgroundService
                     case "actualizar_agente":
                         _logger.LogInformation("[Comando] Iniciando actualización de agente...");
                         await EjecutarActualizacionAgenteAsync(docRef, db, ct);
-                        _logger.LogInformation("[Comando] Actualización de agente finalizada.");
+                        _logger.LogInformation("[Comando] Script lanzado. Esperando shutdown (bloqueando nuevos comandos).");
+                        await Task.Delay(Timeout.Infinite, ct);
                         break;
 
                     default:

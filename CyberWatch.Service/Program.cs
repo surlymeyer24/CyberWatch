@@ -12,6 +12,7 @@ IHost host = Host.CreateDefaultBuilder(args)
     .UseWindowsService()
     .ConfigureLogging((context, logging) =>
     {
+        logging.ClearProviders();
         logging.AddConsole();
         logging.SetMinimumLevel(LogLevel.Information);
         logging.AddProvider(new FileLoggerProvider("cyberwatch_service.log", null, LogLevel.Information));
@@ -28,6 +29,7 @@ IHost host = Host.CreateDefaultBuilder(args)
         servicios.AddSingleton<IEvaluadorAmenazas, EvaluadorAmenazas>();
         servicios.AddSingleton<IGestorAlertas, GestorAlertas>();
         servicios.AddSingleton<ILiquidadorProcesos, LiquidarProcesos>();
+        servicios.AddSingleton<ICuarentena, ServicioCuarentena>();
         servicios.AddSingleton<RastreadorProcesos>();
         servicios.AddSingleton<MonitorActividadArchivos>();
 

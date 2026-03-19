@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using CyberWatch.Service.Config;
 using CyberWatch.Service.Models;
@@ -8,7 +9,7 @@ namespace CyberWatch.Service.Monitoring;
 public class RastreadorProcesos
 {
     private readonly UmbralesSettings _umbrales;
-    private readonly Dictionary<string, (string NombreProceso, DateTime FechaAgregado)> _cache = new();
+    private readonly ConcurrentDictionary<string, (string NombreProceso, DateTime FechaAgregado)> _cache = new();
 
     public RastreadorProcesos(IOptions<UmbralesSettings> umbrales)
     {
@@ -46,11 +47,10 @@ public class RastreadorProcesos
     public void LimpiarCache()
     {
         var limite = DateTime.Now.AddSeconds(-_umbrales.TiempoEsperaLiquidacion);
-        var entradasViejas = _cache
-            .Where(e => e.Value.FechaAgregado < limite)
-            .Select(e => e.Key)
-            .ToList();
-        foreach (var entrada in entradasViejas)
-            _cache.Remove(entrada);
+        foreach (var key in _cache.Keys)
+        {
+            if (_cache.TryGetValue(key, out var valor) && valor.FechaAgregado < limite)
+                _cache.TryRemove(key, out _);
+        }
     }
 }

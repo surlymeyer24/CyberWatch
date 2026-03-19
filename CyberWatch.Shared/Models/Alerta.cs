@@ -42,6 +42,20 @@ public class Alerta
     [FirestoreProperty("extensionDetectada")]
     public string? ExtensionDetectada { get; set; }
 
+    // ── Cuarentena ────────────────────────────────────────────────────────────
+
+    [FirestoreProperty("rutaEjecutableOriginal")]
+    public string? RutaEjecutableOriginal { get; set; }
+
+    [FirestoreProperty("rutaCuarentena")]
+    public string? RutaCuarentena { get; set; }
+
+    [FirestoreProperty("cuarentenaExitosa")]
+    public bool? CuarentenaExitosa { get; set; }
+
+    [FirestoreProperty("cuarentenaError")]
+    public string? CuarentenaError { get; set; }
+
     // ── Alerta de evento de seguridad (SecurityEventMonitorService) ───────────
 
     [FirestoreProperty("tipo")]

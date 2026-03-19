@@ -14,16 +14,19 @@ public class ComandoService : BackgroundService
 {
     private readonly FirebaseSettings _firebase;
     private readonly CapturaService   _captura;
+    private readonly HistorialNavegacionService _historial;
     private readonly ILogger<ComandoService> _logger;
 
     public ComandoService(
-        IOptions<FirebaseSettings> firebase,
-        CapturaService             captura,
-        ILogger<ComandoService>    logger)
+        IOptions<FirebaseSettings>   firebase,
+        CapturaService               captura,
+        HistorialNavegacionService   historial,
+        ILogger<ComandoService>      logger)
     {
-        _firebase = firebase.Value;
-        _captura  = captura;
-        _logger   = logger;
+        _firebase  = firebase.Value;
+        _captura   = captura;
+        _historial = historial;
+        _logger    = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -64,12 +67,16 @@ public class ComandoService : BackgroundService
                 {
                     _logger.LogInformation("Comando UA recibido: {Cmd}", cmd);
 
-                    if (cmd == "captura")
-                        await _captura.TomarCapturaAsync("dashboard");
-
+                    // Limpiar antes de ejecutar: si el proceso se mata durante la ejecución
+                    // el comando no se reintenta automáticamente al reiniciar.
                     await docRef.UpdateAsync(
                         new Dictionary<string, object> { ["comando_ua"] = FieldValue.Delete },
                         cancellationToken: stoppingToken);
+
+                    if (cmd == "captura")
+                        await _captura.TomarCapturaAsync("dashboard");
+                    else if (cmd == "historial_completo")
+                        await _historial.ExportarHistorialCompletoAsync();
                 }
             }
             catch (OperationCanceledException) { break; }

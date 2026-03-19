@@ -16,6 +16,7 @@ namespace CyberWatch.Service.Models
         public bool RenombradosSospechosas { get; set; }
         public bool ExtensionSospechosa { get; set; }
         public string? ExtensionDetectada { get; set; }
+        public string? RutaEjecutable { get; set; }
 
         public ReporteAmenaza(string nombreProceso, bool escriturasSospechosas, bool renombradosSospechosas, bool extensionSospechosa, string? extensionDetectada = null)
         {

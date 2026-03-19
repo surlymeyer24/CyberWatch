@@ -1,7 +1,10 @@
+using System.Text.Json;
 using CyberWatch.Shared.Config;
 using CyberWatch.Shared.Helpers;
 using CyberWatch.Shared.Models;
+using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
+using Google.Cloud.Storage.V1;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,12 +17,18 @@ public class HistorialNavegacionService : BackgroundService
     private readonly ILogger<HistorialNavegacionService> _logger;
     private DateTime _ultimaSync;
 
+    private static readonly string _directorioHistorial =
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CyberWatch", "historial");
+
     public HistorialNavegacionService(
         IOptions<FirebaseSettings> firebase,
         ILogger<HistorialNavegacionService> logger)
     {
         _firebase = firebase.Value;
         _logger = logger;
+        Directory.CreateDirectory(_directorioHistorial);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -65,6 +74,119 @@ public class HistorialNavegacionService : BackgroundService
             }
 
             await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
+        }
+    }
+
+    /// <summary>
+    /// Comando remoto: lee TODO el historial de navegación, lo guarda como JSON
+    /// y lo sube a Firebase Storage. Devuelve la URL firmada.
+    /// </summary>
+    public async Task ExportarHistorialCompletoAsync()
+    {
+        _logger.LogInformation("[Historial] Iniciando exportación de historial completo...");
+
+        // Leer todo el historial (desde el inicio de los tiempos)
+        var entradas = new List<EntradaHistorial>();
+        entradas.AddRange(LectorHistorialSqlite.LeerChrome(DateTime.MinValue, _logger));
+        entradas.AddRange(LectorHistorialSqlite.LeerEdge(DateTime.MinValue, _logger));
+        entradas.AddRange(LectorHistorialSqlite.LeerFirefox(DateTime.MinValue, _logger));
+
+        if (entradas.Count == 0)
+        {
+            _logger.LogWarning("[Historial] No se encontró historial en ningún navegador. No se sube nada a Storage.");
+            await EscribirErrorHistorialEnFirestoreAsync("Sin entradas: no se encontró historial en Chrome, Edge ni Firefox.");
+            return;
+        }
+
+        _logger.LogInformation("[Historial] Historial completo: {Count} entradas de todos los navegadores.", entradas.Count);
+
+        // Serializar a JSON
+        var nombre = $"historial_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+        var rutaLocal = Path.Combine(_directorioHistorial, nombre);
+
+        var datosJson = entradas.Select(e => new
+        {
+            url = e.Url,
+            titulo = e.Titulo,
+            fecha_visita = e.FechaVisita.ToDateTime().ToString("o"),
+            navegador = e.Navegador,
+            perfil = e.Perfil
+        });
+
+        var json = JsonSerializer.Serialize(datosJson, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(rutaLocal, json);
+
+        _logger.LogInformation("[Historial] JSON guardado localmente: {Ruta} ({Size} KB)",
+            rutaLocal, new FileInfo(rutaLocal).Length / 1024);
+
+        // Subir a Firebase Storage
+        await SubirAStorageAsync(rutaLocal, nombre);
+    }
+
+    private async Task SubirAStorageAsync(string rutaLocal, string nombre)
+    {
+        try
+        {
+            var machineId = MachineIdHelper.Read();
+            var credPath = _firebase.GetEffectiveCredentialPath();
+
+            if (string.IsNullOrEmpty(credPath) || string.IsNullOrEmpty(_firebase.StorageBucket)
+                || string.IsNullOrEmpty(_firebase.ProjectId) || machineId == null)
+            {
+                var msg = "[Historial] Storage no configurado o machineId no encontrado. Historial solo local.";
+                _logger.LogWarning(msg);
+                await EscribirErrorHistorialEnFirestoreAsync("Storage no configurado o machineId no encontrado.");
+                return;
+            }
+
+            var credential = GoogleCredential.FromFile(credPath);
+            var objectName = $"historial/{machineId}/{nombre}";
+
+            using var storageClient = StorageClient.Create(credential);
+            using var fileStream = File.OpenRead(rutaLocal);
+            await storageClient.UploadObjectAsync(_firebase.StorageBucket, objectName, "application/json", fileStream);
+
+            var urlSigner = UrlSigner.FromCredential(credential);
+            var url = await urlSigner.SignAsync(_firebase.StorageBucket, objectName, TimeSpan.FromDays(7));
+            _logger.LogInformation("[Historial] Historial completo subido a Storage: {ObjectName}", objectName);
+
+            // Guardar URL firmada en Firestore
+            var db = FirestoreDbFactory.Create(_firebase.ProjectId, credPath);
+            var docRef = db.Collection(_firebase.FirestoreColeccionInstancias).Document(machineId);
+            await docRef.SetAsync(new InstanciaMaquina
+            {
+                UltimaHistorialCompletoUrl = url,
+                UltimaHistorialCompletoTs = Timestamp.FromDateTime(DateTime.UtcNow),
+                UltimaHistorialCompletoError = null
+            }, SetOptions.MergeFields(
+                "ultima_historial_completo_url", "ultima_historial_completo_ts", "ultima_historial_completo_error"
+            ));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Historial] Error al subir historial completo a Storage: {Message}", ex.Message);
+            await EscribirErrorHistorialEnFirestoreAsync(ex.Message);
+        }
+    }
+
+    private async Task EscribirErrorHistorialEnFirestoreAsync(string mensaje)
+    {
+        try
+        {
+            var machineId = MachineIdHelper.Read();
+            var credPath = _firebase.GetEffectiveCredentialPath();
+            if (string.IsNullOrEmpty(credPath) || string.IsNullOrEmpty(_firebase.ProjectId) || machineId == null)
+                return;
+            var db = FirestoreDbFactory.Create(_firebase.ProjectId, credPath);
+            var docRef = db.Collection(_firebase.FirestoreColeccionInstancias).Document(machineId);
+            await docRef.SetAsync(new InstanciaMaquina
+            {
+                UltimaHistorialCompletoError = mensaje
+            }, SetOptions.MergeFields("ultima_historial_completo_error"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Historial] No se pudo escribir error en Firestore.");
         }
     }
 
@@ -136,7 +258,7 @@ public class HistorialNavegacionService : BackgroundService
             // Si falla, usar default
         }
 
-        // Primera vez: solo últimas 24 horas
-        return DateTime.UtcNow.AddDays(-1);
+        // Primera vez: desde ahora (solo historial nuevo a partir del arranque)
+        return DateTime.UtcNow;
     }
 }

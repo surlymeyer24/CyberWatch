@@ -17,6 +17,14 @@ public class UmbralesSettings
         ".sage", ".jaff", ".lukitus", ".diablo6", ".ykcol", ".asasin"
     };
 
+    public string CarpetaCuarentena { get; set; } = @"C:\ProgramData\CyberWatch\Cuarentena";
+
+    public List<string> DirectoriosProtegidos { get; set; } = new()
+    {
+        @"C:\Windows",
+        @"C:\Program Files\CyberWatch"
+    };
+
     /// <summary>
     /// Nombres de proceso que no se consideran amenaza aunque superen umbrales
     /// (servicios Windows, indexador, sincronización en nube, etc.).

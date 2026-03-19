@@ -33,22 +33,42 @@ public class MonitorActividadArchivos
 
     public void IniciarMonitorizacion()
     {
-        var unidades = DriveInfo.GetDrives()
-            .Where(d => d.IsReady && (d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Network))
+        var unidadesFijas = DriveInfo.GetDrives()
+            .Where(d => d.IsReady && d.DriveType == DriveType.Fixed)
             .ToList();
 
-        _logger.LogInformation("[Monitor] Unidades detectadas: {Unidades}", string.Join(", ", unidades.Select(u => u.Name)));
+        // Identificar el drive del sistema (ej. C:\) para monitorear solo C:\Users\
+        var driveSistema = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
 
-        foreach (var unidad in unidades)
+        var pathsAMonitorear = new List<string>();
+        foreach (var unidad in unidadesFijas)
+        {
+            if (string.Equals(unidad.Name, driveSistema, StringComparison.OrdinalIgnoreCase))
+            {
+                // Drive del sistema: solo C:\Users\ (donde están documentos, escritorio, descargas)
+                var usersPath = Path.Combine(unidad.Name, "Users");
+                if (Directory.Exists(usersPath))
+                    pathsAMonitorear.Add(usersPath);
+            }
+            else
+            {
+                // Otros drives fijos: raíz completa
+                pathsAMonitorear.Add(unidad.Name);
+            }
+        }
+
+        _logger.LogInformation("[Monitor] Paths a monitorear: {Paths}", string.Join(", ", pathsAMonitorear));
+
+        foreach (var path in pathsAMonitorear)
         {
             try
             {
-                var watcher = new FileSystemWatcher(unidad.Name)
+                var watcher = new FileSystemWatcher(path)
                 {
                     IncludeSubdirectories = true,
                     EnableRaisingEvents   = true,
                     NotifyFilter          = NotifyFilters.FileName | NotifyFilters.LastWrite,
-                    InternalBufferSize    = 262144 // 256KB para soportar actividad de fondo de Windows
+                    InternalBufferSize    = 262144 // 256KB
                 };
                 _watchers.Add(watcher);
 
@@ -56,13 +76,13 @@ public class MonitorActividadArchivos
                 watcher.Deleted += OnEliminado;
                 watcher.Renamed += OnRenombrado;
                 watcher.Changed += OnModificado;
-                watcher.Error   += (s, e) => _logger.LogError(e.GetException(), "[Monitor] Error en watcher de {Unidad}", unidad.Name);
+                watcher.Error   += (s, e) => _logger.LogError(e.GetException(), "[Monitor] Error en watcher de {Path}", path);
 
-                _logger.LogInformation("[Monitor] Watcher iniciado en {Unidad}", unidad.Name);
+                _logger.LogInformation("[Monitor] Watcher iniciado en {Path}", path);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[Monitor] No se pudo crear watcher en {Unidad}", unidad.Name);
+                _logger.LogError(ex, "[Monitor] No se pudo crear watcher en {Path}", path);
             }
         }
     }

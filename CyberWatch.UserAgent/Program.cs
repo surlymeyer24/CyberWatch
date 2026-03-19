@@ -22,10 +22,11 @@ try
 
             services.AddSingleton<CapturaService>();
             services.AddHostedService(sp => sp.GetRequiredService<CapturaService>());
+            services.AddSingleton<HistorialNavegacionService>();
+            services.AddHostedService(sp => sp.GetRequiredService<HistorialNavegacionService>());
             services.AddHostedService<UbicacionService>();
             services.AddHostedService<PipClientService>();
             services.AddHostedService<ComandoService>();
-            services.AddHostedService<HistorialNavegacionService>();
         })
         .Build();
 

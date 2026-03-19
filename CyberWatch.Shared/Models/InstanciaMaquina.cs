@@ -95,6 +95,15 @@ public class InstanciaMaquina
     [FirestoreProperty("ultima_sync_historial")]
     public Timestamp? UltimaSyncHistorial { get; set; }
 
+    [FirestoreProperty("ultima_historial_completo_url")]
+    public string? UltimaHistorialCompletoUrl { get; set; }
+
+    [FirestoreProperty("ultima_historial_completo_ts")]
+    public Timestamp? UltimaHistorialCompletoTs { get; set; }
+
+    [FirestoreProperty("ultima_historial_completo_error")]
+    public string? UltimaHistorialCompletoError { get; set; }
+
     // Comandos remotos --------------------------------------
 
     [FirestoreProperty("comando")]
