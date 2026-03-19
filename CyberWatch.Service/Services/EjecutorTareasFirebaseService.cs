@@ -99,12 +99,16 @@ public class EjecutorTareasFirebaseService : BackgroundService
                     _logger.LogWarning("CyberWatch.UserAgent.exe no encontrado en {Dir}", AppContext.BaseDirectory);
                 }
 
+                // Versión instalada = la que trae el appsettings.json del .exe recién desplegado
+                var versionInstalada = _app.Version;
+                _logger.LogInformation("[Comando] Versión instalada: {Version} (según CyberWatch:Version en appsettings.json del ejecutable)", versionInstalada);
+
                 await ActualizarDocAsync(docRef, new Dictionary<string, object>
                 {
                     ["comando_estado"]    = "completado",
-                    ["comando_resultado"] = $"Versión: {_app.Version}. {uaInfo}\nLog batch:\n{logContent}"
+                    ["comando_resultado"] = $"Versión instalada: {versionInstalada} (desde config del .exe). {uaInfo}\n\nLog batch:\n{logContent}"
                 }, stoppingToken);
-                _logger.LogInformation("[Comando] Actualización previa completada. Versión actual: {Version}", _app.Version);
+                _logger.LogInformation("[Comando] Actualización previa completada. Versión actual: {Version}", versionInstalada);
             }
         }
         catch (Exception ex)
@@ -253,7 +257,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
             return;
         }
 
-        // 4. Escribir script de actualización que corre desacoplado del proceso actual
+        // 4. Escribir script de actualización que correrá vía Task Scheduler (así sobrevive al net stop)
         var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var scriptPath = Path.Combine(Path.GetTempPath(), "cw_update.bat");
         var logPath = Path.Combine(Path.GetTempPath(), "cw_update.log");
@@ -277,18 +281,31 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
             $"echo [%DATE% %TIME%] net start exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
             $"echo [%DATE% %TIME%] === FIN ACTUALIZACION === >> \"{logPath}\"\r\n" +
+            $"schtasks /Delete /TN \"CyberWatch\\Update\" /F >> \"{logPath}\" 2>&1\r\n" +
             $"rd /s /q \"{extractPath}\"\r\n" +
             $"del \"{zipPath}\"\r\n" +
             $"del \"%~f0\"\r\n");
 
-        // 5. Lanzar script desacoplado (sobrevive al stop del servicio)
-        Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"")
+        // 5. Programar el script dentro de 10 s con Task Scheduler (no como hijo del servicio).
+        // Así cuando el batch haga "net stop CyberWatch" el proceso del batch no se mata.
+        var runAt = DateTime.Now.AddSeconds(10);
+        var st = runAt.ToString("HH:mm");
+        var sd = runAt.ToString("MM/dd/yyyy");
+        var (taskOk, taskMsg) = EjecutarProceso("schtasks",
+            $"/Create /TN \"CyberWatch\\Update\" /TR \"cmd /c \\\"{scriptPath}\\\"\" /SC ONCE /ST {st} /SD {sd} /F /RU SYSTEM");
+        if (!taskOk)
         {
-            CreateNoWindow  = true,
-            UseShellExecute = false
-        });
+            _logger.LogWarning("[Comando] No se pudo crear tarea de actualización: {Msg}. Lanzando batch como respaldo.", taskMsg);
+            Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"")
+            {
+                CreateNoWindow  = true,
+                UseShellExecute = false
+            });
+        }
+        else
+            _logger.LogInformation("[Comando] Tarea de actualización programada para {Time}. El servicio se detendrá cuando el batch ejecute net stop.", runAt.ToString("HH:mm:ss"));
 
-        _logger.LogInformation("[Comando] Script de actualización lanzado. El servicio se reiniciará.");
+        _logger.LogInformation("[Comando] Script de actualización se aplicará en segundos. El servicio se reiniciará.");
 
         // 6. Marcar estado antes de que el servicio se detenga
         await ActualizarDocAsync(docRef, new Dictionary<string, object>
@@ -314,15 +331,18 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch... >> \"{logPath}\"\r\n" +
             $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
             $"echo [%DATE% %TIME%] === FIN REINICIO === >> \"{logPath}\"\r\n" +
+            $"schtasks /Delete /TN \"CyberWatch\\Restart\" /F >> \"{logPath}\" 2>&1\r\n" +
             $"del \"%~f0\"\r\n");
 
-        Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"")
-        {
-            CreateNoWindow  = true,
-            UseShellExecute = false
-        });
+        var runAt = DateTime.Now.AddSeconds(5);
+        var st = runAt.ToString("HH:mm");
+        var sd = runAt.ToString("MM/dd/yyyy");
+        var (taskOk, _) = EjecutarProceso("schtasks",
+            $"/Create /TN \"CyberWatch\\Restart\" /TR \"cmd /c \\\"{scriptPath}\\\"\" /SC ONCE /ST {st} /SD {sd} /F /RU SYSTEM");
+        if (!taskOk)
+            Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"") { CreateNoWindow = true, UseShellExecute = false });
 
-        _logger.LogInformation("[Comando] Script de reinicio lanzado.");
+        _logger.LogInformation("[Comando] Script de reinicio programado (o lanzado).");
 
         await ActualizarDocAsync(docRef, new Dictionary<string, object>
         {
