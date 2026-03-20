@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using CyberWatch.Shared.Config;
 using CyberWatch.Shared.Helpers;
 using CyberWatch.Shared.Models;
@@ -46,7 +47,22 @@ public class UbicacionService : BackgroundService
             return;
         }
 
-        var acceso = await Geolocator.RequestAccessAsync();
+        GeolocationAccessStatus acceso;
+        try
+        {
+            acceso = await Geolocator.RequestAccessAsync();
+        }
+        catch (COMException ex)
+        {
+            _logger.LogWarning(ex, "Error COM al solicitar acceso a ubicación (handle inválido). GPS desactivado para esta sesión.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error inesperado al solicitar acceso a ubicación. GPS desactivado.");
+            return;
+        }
+
         if (acceso != GeolocationAccessStatus.Allowed)
         {
             _logger.LogWarning("Acceso a ubicación denegado ({Status}). Activá 'Permitir que las apps de escritorio accedan a tu ubicación' en Configuración > Privacidad.", acceso);

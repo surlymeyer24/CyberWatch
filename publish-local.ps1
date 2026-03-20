@@ -3,11 +3,12 @@
 # Uso:
 #   .\publish-local.ps1
 #   .\publish-local.ps1 -CredentialPath "auth\serviceAccountKey.json"
-#   .\publish-local.ps1 -CredentialPath "C:\ruta\serviceAccountKey.json" -CreateZip
+#   .\publish-local.ps1 -CredentialPath "C:\ruta\serviceAccountKey.json" -SkipZip
+#   .\publish-local.ps1 -SkipZip   (solo carpeta publish_output, sin ZIP)
 
 param(
     [string]$CredentialPath = "",
-    [switch]$CreateZip
+    [switch]$SkipZip
 )
 
 $ErrorActionPreference = "Stop"
@@ -80,8 +81,8 @@ if (Test-Path $appsettingsPath) {
 Write-Host "[5/5] Copiando install.bat" -ForegroundColor Yellow
 Copy-Item (Join-Path $root "CyberWatch.Service\install.bat") -Destination $outDir -Force
 
-# ZIP opcional
-if ($CreateZip) {
+# ZIP del paquete (por defecto sí; usar -SkipZip para omitir)
+if (-not $SkipZip) {
     $zipPath = Join-Path $root "CyberWatch.Service.zip"
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
     Compress-Archive -Path (Join-Path $outDir "*") -DestinationPath $zipPath
@@ -89,4 +90,7 @@ if ($CreateZip) {
 }
 
 Write-Host "`nListo. Paquete en: $outDir" -ForegroundColor Green
+if (-not $SkipZip) {
+    Write-Host "ZIP listo para copiar o subir como asset de release: CyberWatch.Service.zip" -ForegroundColor Gray
+}
 Write-Host "Para instalar en otra PC: copiar la carpeta (o el ZIP), descomprimir y ejecutar install.bat como administrador." -ForegroundColor Gray

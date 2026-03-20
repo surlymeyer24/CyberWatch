@@ -68,11 +68,11 @@ cd C:\Users\Usr\Documents\CyberWatch
 # Sin inyectar credenciales (solo build; configurás CredentialPath a mano después)
 .\publish-local.ps1
 
-# Generar también el ZIP
-.\publish-local.ps1 -CredentialPath "auth\serviceAccountKey.json" -CreateZip
+# Omitir el ZIP (solo carpeta publish_output)
+.\publish-local.ps1 -CredentialPath "auth\serviceAccountKey.json" -SkipZip
 ```
 
-El resultado queda en **`publish_output`** (y opcionalmente **`CyberWatch.Service.zip`**). Podés copiar esa carpeta o el ZIP a la máquina destino y ejecutar **install.bat** como administrador.
+Por defecto el script **también genera** **`CyberWatch.Service.zip`** junto a la carpeta **`publish_output`**. Usá **`-SkipZip`** si no querés el archivo comprimido. Podés copiar la carpeta o el ZIP a la máquina destino y ejecutar **install.bat** como administrador.
 
 ---
 
@@ -86,9 +86,9 @@ Si el comando **actualizar_agente** desde el Dashboard no aplica la nueva versi�
    - **Opción A:** En GitHub → **Releases** → descargar el ZIP del último release (ej. `CyberWatch-v2.1.0.zip`).
    - **Opción B:** En tu máquina de desarrollo, generar el paquete local:
      ```powershell
-     .\publish-local.ps1 -CredentialPath "auth\serviceAccountKey.json" -CreateZip
+     .\publish-local.ps1 -CredentialPath "auth\serviceAccountKey.json"
      ```
-     Luego copiar la carpeta **`publish_output`** o el **`CyberWatch.Service.zip`** a la PC destino (USB, red, etc.).
+     (El ZIP se crea por defecto.) Luego copiar la carpeta **`publish_output`** o el **`CyberWatch.Service.zip`** a la PC destino (USB, red, etc.).
 
 2. **En la PC donde ya está instalado CyberWatch**
    - Copiar el contenido del ZIP (o de `publish_output`) a una carpeta temporal, ej. `C:\Temp\CyberWatchUpdate`.
