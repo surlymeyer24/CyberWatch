@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.IO.Pipes;
+using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
@@ -11,6 +12,7 @@ namespace CyberWatch.Service.Services;
 /// <summary>
 /// Named Pipe server que envía eventos al CyberWatch.UserAgent corriendo en la sesión de usuario.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public class AgentePipeServerService : BackgroundService
 {
     public const string NombrePipe = "CyberWatch_AgentPipe";
@@ -59,7 +61,7 @@ public class AgentePipeServerService : BackgroundService
                 _clientes[id] = writer;
                 _logger.LogDebug("UserAgent conectado al pipe (id: {Id}).", id);
 
-                _ = MonitorearDesconexionAsync(id, pipe, stoppingToken);
+                _ = MonitorearDesconexionAsync(id, pipe, writer, stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -75,22 +77,40 @@ public class AgentePipeServerService : BackgroundService
         }
     }
 
-    private async Task MonitorearDesconexionAsync(Guid id, NamedPipeServerStream pipe, CancellationToken ct)
+    private static readonly TimeSpan KeepaliveInterval = TimeSpan.FromSeconds(20);
+
+    private async Task MonitorearDesconexionAsync(Guid id, NamedPipeServerStream pipe, StreamWriter writer, CancellationToken ct)
     {
+        var lastKeepalive = DateTime.UtcNow;
         try
         {
             while (pipe.IsConnected && !ct.IsCancellationRequested)
+            {
                 await Task.Delay(TimeSpan.FromSeconds(1), ct);
+                // Keepalive: evita que el pipe inactivo se cierre por timeout del SO o firewall
+                if (DateTime.UtcNow - lastKeepalive >= KeepaliveInterval && _clientes.ContainsKey(id))
+                {
+                    try
+                    {
+                        await writer.WriteLineAsync("{\"tipo\":\"ping\"}");
+                        await writer.FlushAsync(ct);
+                        lastKeepalive = DateTime.UtcNow;
+                    }
+                    catch { break; }
+                }
+            }
         }
         catch (OperationCanceledException) { }
         finally
         {
             _clientes.TryRemove(id, out _);
+            try { writer.Dispose(); } catch { }
             pipe.Dispose();
             _logger.LogDebug("UserAgent desconectado del pipe (id: {Id}).", id);
         }
     }
 
+    [SupportedOSPlatform("windows")]
     private static NamedPipeServerStream CrearPipeServer()
     {
         var security = new PipeSecurity();

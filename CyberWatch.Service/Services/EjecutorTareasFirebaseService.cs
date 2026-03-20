@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Http;
@@ -287,16 +286,27 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $"del \"{zipPath}\"\r\n" +
             $"del \"%~f0\"\r\n");
 
-        // 5. Programar el script dentro de 10 s con Task Scheduler (no como hijo del servicio).
-        // Así cuando el batch haga "net stop CyberWatch" el proceso del batch no se mata.
-        // Fecha/hora en formato de la cultura actual para que schtasks acepte (ej. dd/MM/yyyy en español).
-        var runAt = DateTime.Now.AddSeconds(10);
-        var culture = CultureInfo.CurrentCulture;
-        var st = runAt.ToString("HH:mm", CultureInfo.InvariantCulture);
-        var sd = runAt.ToString(culture.DateTimeFormat.ShortDatePattern, culture);
+        // 5. Programar el script via Task Scheduler (así sobrevive al net stop).
+        // Se crea con tiempo dummy y se ejecuta inmediatamente con /Run para evitar
+        // problemas de formato de fecha/hora según la cultura del sistema.
         var (taskOk, taskMsg) = EjecutarProceso("schtasks",
-            $"/Create /TN \"CyberWatch\\Update\" /TR \"cmd /c \\\"{scriptPath}\\\"\" /SC ONCE /ST {st} /SD {sd} /F /RU SYSTEM");
-        if (!taskOk)
+            $"/Create /TN \"CyberWatch\\Update\" /TR \"cmd /c \\\"{scriptPath}\\\"\" /SC ONCE /ST 00:00 /F /RU SYSTEM");
+        if (taskOk)
+        {
+            var (runOk, runMsg) = EjecutarProceso("schtasks", "/Run /TN \"CyberWatch\\Update\"");
+            if (!runOk)
+            {
+                _logger.LogWarning("[Comando] Tarea creada pero no se pudo ejecutar: {Msg}. Lanzando batch como respaldo.", runMsg);
+                Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"")
+                {
+                    CreateNoWindow  = true,
+                    UseShellExecute = false
+                });
+            }
+            else
+                _logger.LogInformation("[Comando] Tarea de actualización ejecutada vía Task Scheduler.");
+        }
+        else
         {
             _logger.LogWarning("[Comando] No se pudo crear tarea de actualización: {Msg}. Lanzando batch como respaldo.", taskMsg);
             Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"")
@@ -305,8 +315,6 @@ public class EjecutorTareasFirebaseService : BackgroundService
                 UseShellExecute = false
             });
         }
-        else
-            _logger.LogInformation("[Comando] Tarea de actualización programada para {Time}. El servicio se detendrá cuando el batch ejecute net stop.", runAt.ToString("HH:mm:ss"));
 
         _logger.LogInformation("[Comando] Script de actualización se aplicará en segundos. El servicio se reiniciará.");
 
@@ -337,13 +345,18 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $"schtasks /Delete /TN \"CyberWatch\\Restart\" /F >> \"{logPath}\" 2>&1\r\n" +
             $"del \"%~f0\"\r\n");
 
-        var runAt = DateTime.Now.AddSeconds(5);
-        var culture = CultureInfo.CurrentCulture;
-        var st = runAt.ToString("HH:mm", CultureInfo.InvariantCulture);
-        var sd = runAt.ToString(culture.DateTimeFormat.ShortDatePattern, culture);
         var (taskOk, _) = EjecutarProceso("schtasks",
-            $"/Create /TN \"CyberWatch\\Restart\" /TR \"cmd /c \\\"{scriptPath}\\\"\" /SC ONCE /ST {st} /SD {sd} /F /RU SYSTEM");
-        if (!taskOk)
+            $"/Create /TN \"CyberWatch\\Restart\" /TR \"cmd /c \\\"{scriptPath}\\\"\" /SC ONCE /ST 00:00 /F /RU SYSTEM");
+        if (taskOk)
+        {
+            var (runOk, runMsg) = EjecutarProceso("schtasks", "/Run /TN \"CyberWatch\\Restart\"");
+            if (!runOk)
+            {
+                _logger.LogWarning("[Comando] Tarea de reinicio creada pero no ejecutada: {Msg}. Lanzando batch como respaldo.", runMsg);
+                Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"") { CreateNoWindow = true, UseShellExecute = false });
+            }
+        }
+        else
             Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"") { CreateNoWindow = true, UseShellExecute = false });
 
         _logger.LogInformation("[Comando] Script de reinicio programado (o lanzado).");

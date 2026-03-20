@@ -1,14 +1,20 @@
+using System.IO;
+using System.Text;
 using Microsoft.Extensions.Logging;
 
 namespace CyberWatch.Shared.Logging;
 
 /// <summary>
 /// Escribe logs en un archivo para poder revisar actualizaciones, errores, etc.
+/// Usa un stream abierto con AutoFlush y FileShare.Read para que el archivo se actualice en disco
+/// y se pueda ver en tiempo real desde otro proceso (p. ej. editor que recarga).
 /// </summary>
 public sealed class FileLoggerProvider : ILoggerProvider
 {
+    private readonly StreamWriter _writer;
     private readonly string _logFilePath;
     private readonly LogLevel _minLevel;
+    private readonly object _streamLock = new();
 
     public FileLoggerProvider(string logFileName, string? basePath = null, LogLevel minLevel = LogLevel.Information)
     {
@@ -16,28 +22,32 @@ public sealed class FileLoggerProvider : ILoggerProvider
         Directory.CreateDirectory(dir);
         _logFilePath = Path.Combine(dir, logFileName);
         _minLevel = minLevel;
+
+        var stream = new FileStream(_logFilePath, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.None);
+        _writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
     }
 
-    public ILogger CreateLogger(string categoryName) => new FileLogger(_logFilePath, categoryName, _minLevel);
+    public ILogger CreateLogger(string categoryName) => new FileLogger(_writer, _streamLock, categoryName, _minLevel);
 
-    public void Dispose() { }
+    public void Dispose() => _writer?.Dispose();
 }
 
 file sealed class FileLogger : ILogger
 {
-    private static readonly object Lock = new();
-    private readonly string _path;
+    private readonly StreamWriter _writer;
+    private readonly object _lock;
     private readonly string _category;
     private readonly LogLevel _minLevel;
 
-    public FileLogger(string path, string category, LogLevel minLevel)
+    public FileLogger(StreamWriter writer, object lockObj, string category, LogLevel minLevel)
     {
-        _path = path;
+        _writer = writer;
+        _lock = lockObj;
         _category = category;
         _minLevel = minLevel;
     }
 
-    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    IDisposable ILogger.BeginScope<TState>(TState state) => NullScope.Instance;
 
     public bool IsEnabled(LogLevel logLevel) => logLevel >= _minLevel && logLevel != LogLevel.None;
 
@@ -61,9 +71,18 @@ file sealed class FileLogger : ILogger
 
         try
         {
-            lock (Lock)
-                File.AppendAllText(_path, line + Environment.NewLine);
+            lock (_lock)
+            {
+                _writer.WriteLine(line);
+                _writer.Flush();
+            }
         }
         catch { /* no fallar si no se puede escribir */ }
+    }
+
+    private sealed class NullScope : IDisposable
+    {
+        public static readonly NullScope Instance = new();
+        public void Dispose() { }
     }
 }

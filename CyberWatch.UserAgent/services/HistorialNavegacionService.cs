@@ -139,7 +139,11 @@ public class HistorialNavegacionService : BackgroundService
                 return;
             }
 
-            var credential = GoogleCredential.FromFile(credPath);
+            GoogleCredential credential;
+            using (var stream = File.OpenRead(credPath))
+#pragma warning disable CS0618 // FromStream obsoleto; CredentialFactory no ofrece API sencilla para path
+                credential = GoogleCredential.FromStream(stream);
+#pragma warning restore CS0618
             var objectName = $"historial/{machineId}/{nombre}";
 
             using var storageClient = StorageClient.Create(credential);

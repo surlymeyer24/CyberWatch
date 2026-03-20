@@ -29,7 +29,10 @@
       "Bash(dotnet add:*)",
       "Bash(ls C:/Users/Usr/Documents/CyberWatch/*.sln)",
       "Bash(echo \"exit: $?\")",
-      "Bash(dotnet new:*)"
+      "Bash(dotnet new:*)",
+      "Bash(find /c/Users/Usr/Documents/CyberWatch -name *update* -type f)",
+      "Bash(grep -rn \"config.*ciberseguridad\\\\|version.*listener\\\\|Listen.*config\" C:UsersUsrDocumentsCyberWatchCyberWatch.Service --include=*.cs)",
+      "Bash(find /c/Users/Usr/Documents/CyberWatch/publish_output -type f -name *.json)"
     ]
   }
 }

@@ -27,8 +27,14 @@ public class FirebaseAlertService : IFirebaseAlertService
         {
             try
             {
+                var credPath = _settings.GetEffectiveCredentialPath();
+                if (string.IsNullOrEmpty(credPath)) throw new InvalidOperationException("Credencial no configurada.");
+                GoogleCredential serviceAccount;
+                using (var stream = File.OpenRead(credPath))
+#pragma warning disable CS0618 // FromStream obsoleto; CredentialFactory no ofrece API sencilla para path
+                    serviceAccount = GoogleCredential.FromStream(stream);
+#pragma warning restore CS0618
                 // Equivalente a Node: admin.initializeApp({ credential: admin.credential.cert(serviceAccount) })
-                var serviceAccount = GoogleCredential.FromFile(_settings.CredentialPath);
                 FirebaseApp.Create(new AppOptions
                 {
                     Credential = serviceAccount,

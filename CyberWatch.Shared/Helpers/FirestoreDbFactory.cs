@@ -14,11 +14,15 @@ public static class FirestoreDbFactory
     public static FirestoreDb Create(string projectId, string? credentialsPath = null)
     {
         if (!string.IsNullOrEmpty(credentialsPath))
+        {
+#pragma warning disable CS0618 // ClientBuilderBase.CredentialsPath obsoleto; la API de credencial explícita no está unificada en Firestore
             return new FirestoreDbBuilder
             {
                 ProjectId = projectId,
                 CredentialsPath = credentialsPath
             }.Build();
+#pragma warning restore CS0618
+        }
 
         return FirestoreDb.Create(projectId);
     }

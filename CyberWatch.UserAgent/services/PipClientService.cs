@@ -39,6 +39,7 @@ public class PipClientService : BackgroundService
                         var evt = JsonSerializer.Deserialize<EventoAgente>(linea,
                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
+                        if (evt?.Tipo == "ping") continue; // keepalive del Service, ignorar
                         if (evt?.Tipo == "amenaza")
                             await _captura.TomarCapturaAsync(evt.Proceso ?? "desconocido");
                     }
