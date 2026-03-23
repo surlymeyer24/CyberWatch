@@ -18,6 +18,21 @@ public class InstanciaMaquina
     [FirestoreProperty("servicio")]
     public string Servicio { get; set; } = "";
 
+    /// <summary>Estado parseado de <c>sc query</c> (ej. RUNNING, STOPPED) o NO_EXISTE / ERROR_SC / DESCONOCIDO.</summary>
+    [FirestoreProperty("servicio_sc_estado")]
+    public string ServicioScEstado { get; set; } = "";
+
+    /// <summary>Línea STATE/ESTADO o mensaje corto del resultado de <c>sc</c>.</summary>
+    [FirestoreProperty("servicio_sc_detalle")]
+    public string? ServicioScDetalle { get; set; }
+
+    /// <summary>Salida estándar+error de <c>sc query</c> (truncada en el Service).</summary>
+    [FirestoreProperty("servicio_sc_salida")]
+    public string? ServicioScSalida { get; set; }
+
+    [FirestoreProperty("servicio_sc_consultado")]
+    public Timestamp? ServicioScConsultado { get; set; }
+
     [FirestoreProperty("ultima_conexion")]
     public Timestamp UltimaConexion { get; set; }
 

@@ -50,7 +50,7 @@ Dashboard (React, `Front/`) ──── Firestore ───► Service (Session
 
 | Colección | Contenido |
 |---|---|
-| `cyberwatch_instancias/{machineId}` | Registro de cada máquina: hostname, IP, versión, geolocalización IP y GPS, última conexión, comando remoto |
+| `cyberwatch_instancias/{machineId}` | Registro de cada máquina: hostname, IP, versión, geolocalización IP y GPS, última conexión, estado del servicio Windows vía `sc query`, comando remoto |
 | `cyberwatch_instancias/{machineId}/alertas/` | Subcollection de alertas por máquina (ransomware y eventos de seguridad). Dedup: no se crea alerta duplicada si ya existe una con los mismos campos clave en los últimos 10 minutos. Incluye `extensionDetectada` para identificar la extensión sospechosa que disparó la alerta |
 | `cyberwatch_instancias/{machineId}/logs_amenazas/` | **Auditoría de detecciones ransomware:** un documento por cada ciclo en que se detecta amenaza (append-only). Incluye repeticiones aunque no se cree nueva entrada en `alertas` por dedup; campos `alertaFirestoreCreada`, `eventosArchivoEnCiclo`, `resumen`, cuarentena, etc. El dashboard consulta con `CollectionGroup("logs_amenazas")` |
 | `cyberwatch_instancias/{machineId}/historial_navegacion/` | Subcollection de historial de navegación por máquina. Cada documento contiene: `url`, `titulo`, `fecha_visita`, `navegador` (chrome/edge/firefox), `perfil`, `sincronizado`. Sync cada 30 minutos, solo entradas nuevas |
@@ -68,6 +68,7 @@ Dashboard (React, `Front/`) ──── Firestore ───► Service (Session
 |---|---|---|
 | `id`, `hostname`, `version` | Service | Identificación |
 | `ip_local`, `ultima_conexion` | Service | Conectividad |
+| `servicio_sc_estado`, `servicio_sc_detalle`, `servicio_sc_salida`, `servicio_sc_consultado` | Service | Resultado de `sc query` sobre `App:ServiceName` (estado Windows del servicio para el dashboard) |
 | `lat`, `lon`, `ciudad`, `pais`, `isp`, `ultima_geolocalizacion` | Service | Geolocalización por IP |
 | `lat_gps`, `lon_gps`, `precision_gps`, `ultima_ubicacion_gps` | UserAgent | GPS via Windows Location API |
 | `comando`, `comando_estado`, `comando_resultado` | Dashboard → Service | Comandos remotos (`actualizar_agente`, etc.) |

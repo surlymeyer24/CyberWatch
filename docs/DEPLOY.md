@@ -78,6 +78,16 @@ Por defecto el script **también genera** **`CyberWatch.Service.zip`** junto a l
 
 ## 4. Cuando la actualización remota no funciona
 
+### Por qué a veces el servicio quedaba detenido (y cómo se corrige en código)
+
+El comando **`actualizar_agente`** genera un `.bat` en **`%TEMP%`** que hace `net stop CyberWatch`, copia archivos y luego `net start`. Ese batch **no puede** ejecutarse como proceso hijo directo del propio servicio: al parar el servicio, Windows suele **terminar también el `cmd.exe` hijo**, y el script **no llega** a `net start` → hay que reiniciar el servicio a mano.
+
+En versiones recientes el Service programa ese `.bat` con el **Programador de tareas** (`schtasks`, tarea bajo `CyberWatch\RemoteUpd_*` o `CyberWatch\RemoteRst_*` para reinicio), de modo que el proceso **no depende** del árbol del servicio. Si `schtasks` falla (políticas), se usa un **fallback** con `cmd /c start /MIN`.
+
+**Diagnóstico en la PC remota:** revisá **`%TEMP%\cw_update.log`** (salida de `net stop`, `xcopy`, `net start` y códigos de salida).
+
+---
+
 Si el comando **actualizar_agente** desde el Dashboard no aplica la nueva versión (el servicio se detiene pero al reiniciar sigue la versión antigua), podés **actualizar manualmente** con el mismo paquete que usarías para una primera instalación.
 
 ### Pasos (en la PC a actualizar)
@@ -188,3 +198,16 @@ En la PC donde está instalado el servicio, revisá:
    - **"No se pudo conectar a Firestore"** o excepciones al iniciar → credenciales inválidas, red o firewall.
 
 Tras cambiar `appsettings.json` o agregar `serviceAccountKey.json`, reiniciá el servicio CyberWatch en **services.msc**.
+
+---
+
+## 8. Firestore: dashboard, `logs_amenazas` y errores de permisos
+
+El front lee la subcolección **`cyberwatch_instancias/{id}/logs_amenazas`** y, en la vista de alertas, usa **collection group** sobre `logs_amenazas` con `orderBy('fechaHora')`.
+
+1. **Reglas e índices** deben estar desplegados en el **mismo proyecto Firebase** que configuraste en el front (`VITE_FIREBASE_PROJECT_ID`):
+   ```bash
+   firebase deploy --only firestore:rules,firestore:indexes
+   ```
+2. El índice de collection group está definido en **`firestore.indexes.json`** (`logs_amenazas` + `fechaHora` descendente). Sin ese índice, la consola puede mostrar un error; en algunos casos el mensaje parece de “permisos”.
+3. Las reglas del repo ya permiten **lectura** de `logs_amenazas` (escritura solo desde el backend con cuenta de servicio). Si ves *Missing or insufficient permissions*, suele ser **reglas o índice no desplegados** o **projectId distinto** entre `.env` y la consola de Firebase.

@@ -134,13 +134,13 @@ En `appsettings.json`:
 ```json
 "CyberWatch": {
   "Version": "1.0.0",
-  "ServiceName": "CyberWatchService",
+  "ServiceName": "CyberWatch",
   "IntervaloActualizacionMinutos": 60
 }
 ```
 
 - **Version:** versión actual instalada. Si en Firestore hay una versión **mayor**, se descargará e instalará la actualización.
-- **ServiceName:** nombre del servicio Windows (el que usaste al instalar con `sc create` o similar).
+- **ServiceName:** nombre exacto del servicio Windows (`sc query "..."`); debe coincidir con `install.bat` / `sc create` (por defecto **CyberWatch**). El registro periódico ejecuta `sc query` y guarda `servicio_sc_estado` en Firestore para el dashboard.
 - **IntervaloActualizacionMinutos:** cada cuántos minutos se consulta Firestore. `0` = desactivado.
 
 ### 4. Flujo automático

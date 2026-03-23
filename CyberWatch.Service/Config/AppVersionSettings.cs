@@ -15,5 +15,6 @@ public class AppVersionSettings
     /// <summary>
     /// Nombre del servicio Windows (para logs y tareas).
     /// </summary>
-    public string ServiceName { get; set; } = "CyberWatchService";
+    /// <remarks>Debe coincidir con el nombre en <c>sc create</c> / <c>install.bat</c> (por defecto <c>CyberWatch</c>).</remarks>
+    public string ServiceName { get; set; } = "CyberWatch";
 }

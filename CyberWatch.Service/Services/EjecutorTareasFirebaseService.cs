@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Net.Http;
 using CyberWatch.Service.Config;
@@ -257,10 +258,14 @@ public class EjecutorTareasFirebaseService : BackgroundService
             return;
         }
 
-        // 4. Escribir script de actualización que correrá vía Task Scheduler (así sobrevive al net stop)
+        // 4. Script de actualización: debe ejecutarse FUERA del árbol de procesos del servicio.
+        // Si se lanza como hijo directo del .exe del servicio, al hacer "net stop CyberWatch"
+        // Windows suele terminar ese hijo (cmd.exe) antes de que llegue a "net start", y el
+        // servicio queda detenido hasta un reinicio manual.
         var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var scriptPath = Path.Combine(Path.GetTempPath(), "cw_update.bat");
         var logPath = Path.Combine(Path.GetTempPath(), "cw_update.log");
+        var schtasksCleanupName = $"CyberWatch\\RemoteUpd_{Guid.NewGuid():N}";
         File.WriteAllText(scriptPath,
             $"@echo off\r\n" +
             $"echo [%DATE% %TIME%] === INICIO ACTUALIZACION === >> \"{logPath}\"\r\n" +
@@ -277,25 +282,35 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $"echo [%DATE% %TIME%] Copiando archivos... >> \"{logPath}\"\r\n" +
             $"xcopy /E /I /Y \"{extractPath}\\*\" \"{installDir}\\\" >> \"{logPath}\" 2>&1\r\n" +
             $"echo [%DATE% %TIME%] xcopy exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
-            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch... >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch (reintentos)... >> \"{logPath}\"\r\n" +
+            $"set CW_START_TRIES=0\r\n" +
+            $":cw_try_start\r\n" +
+            $"set /a CW_START_TRIES+=1\r\n" +
             $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
-            $"echo [%DATE% %TIME%] net start exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
+            $"if not errorlevel 1 goto cw_start_ok\r\n" +
+            $"if %CW_START_TRIES% geq 8 goto cw_start_fail\r\n" +
+            $"echo [%DATE% %TIME%] net start fallo, reintento %CW_START_TRIES%... >> \"{logPath}\"\r\n" +
+            $"timeout /t 4 /nobreak >nul\r\n" +
+            $"goto cw_try_start\r\n" +
+            $":cw_start_fail\r\n" +
+            $"echo [%DATE% %TIME%] ERROR: net start tras reintentos >> \"{logPath}\"\r\n" +
+            $"goto cw_update_cleanup\r\n" +
+            $":cw_start_ok\r\n" +
+            $"echo [%DATE% %TIME%] net start exitcode: 0 >> \"{logPath}\"\r\n" +
+            $":cw_update_cleanup\r\n" +
             $"echo [%DATE% %TIME%] === FIN ACTUALIZACION === >> \"{logPath}\"\r\n" +
+            $"schtasks /Delete /TN \"{schtasksCleanupName}\" /F >> \"{logPath}\" 2>&1\r\n" +
             $"rd /s /q \"{extractPath}\"\r\n" +
             $"del \"{zipPath}\"\r\n" +
             $"del \"%~f0\"\r\n");
 
-        // 5. Lanzar el batch directamente como proceso independiente.
-        // Los procesos hijos de un Windows Service sobreviven al "net stop" (SCM solo
-        // detiene el servicio, no mata el árbol de procesos), así que no necesitamos
-        // Task Scheduler. Esto es más simple y confiable.
+        // 5. Lanzar el .bat vía tarea programada (proceso bajo el Programador de tareas, no hijo del servicio).
         _logger.LogInformation("[Comando] Lanzando batch de actualización: {Path}", scriptPath);
-        Process.Start(new ProcessStartInfo(scriptPath)
+        if (!TryLaunchBatchViaScheduledTask(scriptPath, schtasksCleanupName, out var schMsg))
         {
-            UseShellExecute = false,
-            CreateNoWindow  = true,
-            WorkingDirectory = Path.GetTempPath()
-        });
+            _logger.LogWarning("[Comando] schtasks no pudo programar la actualización ({Msg}). Usando fallback cmd start.", schMsg);
+            TryLaunchBatchDetachedFallback(scriptPath);
+        }
 
         _logger.LogInformation("[Comando] Script de actualización se aplicará en segundos. El servicio se reiniciará.");
 
@@ -313,6 +328,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
     {
         var scriptPath = Path.Combine(Path.GetTempPath(), "cw_restart.bat");
         var logPath    = Path.Combine(Path.GetTempPath(), "cw_update.log");
+        var schtasksCleanupName = $"CyberWatch\\RemoteRst_{Guid.NewGuid():N}";
 
         File.WriteAllText(scriptPath,
             $"@echo off\r\n" +
@@ -320,18 +336,30 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $"timeout /t 3 /nobreak >nul\r\n" +
             $"echo [%DATE% %TIME%] Deteniendo servicio CyberWatch... >> \"{logPath}\"\r\n" +
             $"net stop CyberWatch >> \"{logPath}\" 2>&1\r\n" +
-            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch... >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch (reintentos)... >> \"{logPath}\"\r\n" +
+            $"set CW_RST_TRIES=0\r\n" +
+            $":cw_rst_try\r\n" +
+            $"set /a CW_RST_TRIES+=1\r\n" +
             $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+            $"if not errorlevel 1 goto cw_rst_ok\r\n" +
+            $"if %CW_RST_TRIES% geq 8 goto cw_rst_fail\r\n" +
+            $"timeout /t 4 /nobreak >nul\r\n" +
+            $"goto cw_rst_try\r\n" +
+            $":cw_rst_fail\r\n" +
+            $"echo [%DATE% %TIME%] ERROR: net start tras reintentos >> \"{logPath}\"\r\n" +
+            $"goto cw_rst_end\r\n" +
+            $":cw_rst_ok\r\n" +
+            $":cw_rst_end\r\n" +
             $"echo [%DATE% %TIME%] === FIN REINICIO === >> \"{logPath}\"\r\n" +
+            $"schtasks /Delete /TN \"{schtasksCleanupName}\" /F >> \"{logPath}\" 2>&1\r\n" +
             $"del \"%~f0\"\r\n");
 
         _logger.LogInformation("[Comando] Lanzando batch de reinicio: {Path}", scriptPath);
-        Process.Start(new ProcessStartInfo(scriptPath)
+        if (!TryLaunchBatchViaScheduledTask(scriptPath, schtasksCleanupName, out var schMsg))
         {
-            UseShellExecute = false,
-            CreateNoWindow  = true,
-            WorkingDirectory = Path.GetTempPath()
-        });
+            _logger.LogWarning("[Comando] schtasks no pudo programar el reinicio ({Msg}). Usando fallback cmd start.", schMsg);
+            TryLaunchBatchDetachedFallback(scriptPath);
+        }
 
         _logger.LogInformation("[Comando] Script de reinicio programado (o lanzado).");
 
@@ -386,6 +414,112 @@ public class EjecutorTareasFirebaseService : BackgroundService
             result += $"Error: {ex.Message}";
         }
         return result;
+    }
+
+    /// <summary>
+    /// Ejecuta un .bat bajo el Programador de tareas (no como hijo del proceso del servicio),
+    /// para que sobreviva a <c>net stop CyberWatch</c> y pueda volver a arrancar el servicio.
+    /// </summary>
+    private static bool TryLaunchBatchViaScheduledTask(string scriptPath, string taskName, out string message)
+    {
+        message = "";
+        try
+        {
+            // /SD debe coincidir con el formato regional del SO (servicio = misma cultura que la máquina).
+            var runAt = DateTime.Now.AddMinutes(1);
+            var sd = runAt.ToString("d", CultureInfo.CurrentCulture);
+            var st = runAt.ToString("HH:mm", CultureInfo.InvariantCulture);
+
+            var createPsi = new ProcessStartInfo("schtasks.exe")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            createPsi.ArgumentList.Add("/Create");
+            createPsi.ArgumentList.Add("/F");
+            createPsi.ArgumentList.Add("/TN");
+            createPsi.ArgumentList.Add(taskName);
+            createPsi.ArgumentList.Add("/TR");
+            createPsi.ArgumentList.Add(scriptPath);
+            createPsi.ArgumentList.Add("/SC");
+            createPsi.ArgumentList.Add("ONCE");
+            createPsi.ArgumentList.Add("/SD");
+            createPsi.ArgumentList.Add(sd);
+            createPsi.ArgumentList.Add("/ST");
+            createPsi.ArgumentList.Add(st);
+            createPsi.ArgumentList.Add("/RL");
+            createPsi.ArgumentList.Add("HIGHEST");
+
+            using var createProc = Process.Start(createPsi);
+            var cout = createProc?.StandardOutput.ReadToEnd() ?? "";
+            var cerr = createProc?.StandardError.ReadToEnd() ?? "";
+            createProc?.WaitForExit();
+            if (createProc?.ExitCode != 0)
+            {
+                message = $"{cout} {cerr}".Trim();
+                if (string.IsNullOrEmpty(message))
+                    message = $"schtasks /Create salió con código {createProc?.ExitCode}";
+                return false;
+            }
+
+            var runPsi = new ProcessStartInfo("schtasks.exe")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            runPsi.ArgumentList.Add("/Run");
+            runPsi.ArgumentList.Add("/TN");
+            runPsi.ArgumentList.Add(taskName);
+
+            using var runProc = Process.Start(runPsi);
+            var rout = runProc?.StandardOutput.ReadToEnd() ?? "";
+            var rerr = runProc?.StandardError.ReadToEnd() ?? "";
+            runProc?.WaitForExit();
+            if (runProc?.ExitCode != 0)
+            {
+                message = $"{rout} {rerr}".Trim();
+                if (string.IsNullOrEmpty(message))
+                    message = $"schtasks /Run salió con código {runProc?.ExitCode}";
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            message = ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Segundo intento si schtasks falla (políticas, etc.): <c>start</c> deja un cmd independiente.
+    /// </summary>
+    private static void TryLaunchBatchDetachedFallback(string scriptPath)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("cmd.exe", $"/c start \"\" /MIN \"{scriptPath}\"")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetTempPath()
+            });
+        }
+        catch
+        {
+            // último recurso
+            Process.Start(new ProcessStartInfo(scriptPath)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetTempPath()
+            });
+        }
     }
 
     private static (bool success, string output) EjecutarProceso(string fileName, string args)
