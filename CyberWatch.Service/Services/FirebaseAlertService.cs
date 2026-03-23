@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using CyberWatch.Service.Config;
 using CyberWatch.Service.Models;
 using CyberWatch.Shared.Config;
@@ -63,9 +64,12 @@ public class FirebaseAlertService : IFirebaseAlertService
     }
 
     public Task EnviarAlertaAsync(ReporteAmenaza reporte, CancellationToken ct = default)
-        => EnviarAlertaAsync(reporte, null, ct);
+        => EnviarAlertaAsync(reporte, null, -1, ct);
 
-    public async Task EnviarAlertaAsync(ReporteAmenaza reporte, ResultadoCuarentena? cuarentena, CancellationToken ct = default)
+    public Task EnviarAlertaAsync(ReporteAmenaza reporte, ResultadoCuarentena? cuarentena, CancellationToken ct = default)
+        => EnviarAlertaAsync(reporte, cuarentena, -1, ct);
+
+    public async Task EnviarAlertaAsync(ReporteAmenaza reporte, ResultadoCuarentena? cuarentena, int eventosArchivoEnCiclo, CancellationToken ct = default)
     {
         var machineId = GetMachineId();
         if (_db == null || string.IsNullOrEmpty(machineId)) return;
@@ -76,6 +80,10 @@ public class FirebaseAlertService : IFirebaseAlertService
                          .Document(machineId)
                          .Collection(_settings.FirestoreCollectionAlertas);
 
+            var colLogs = _db.Collection(_settings.FirestoreColeccionInstancias)
+                             .Document(machineId)
+                             .Collection(_settings.FirestoreCollectionLogsAmenazas);
+
             // Dedup: no crear si ya existe alerta con mismo proceso en últimos 10 min
             var proceso = reporte.NombreProceso ?? "";
             var desde = Timestamp.FromDateTime(DateTime.UtcNow.AddMinutes(-10));
@@ -85,11 +93,37 @@ public class FirebaseAlertService : IFirebaseAlertService
                 .Limit(1)
                 .GetSnapshotAsync(ct).ConfigureAwait(false);
 
-            if (existente.Count > 0)
+            var duplicada = existente.Count > 0;
+            if (duplicada)
+                _logger.LogDebug("Alerta duplicada omitida para proceso: {Proceso} (se registra en logs_amenazas)", proceso);
+
+            var resumen = ConstruirResumen(reporte, cuarentena, eventosArchivoEnCiclo, duplicada);
+
+            var log = new LogAmenaza
             {
-                _logger.LogDebug("Alerta duplicada omitida para proceso: {Proceso}", proceso);
+                FechaHora = Timestamp.FromDateTime(DateTime.UtcNow),
+                MachineId = machineId,
+                Hostname = Environment.MachineName,
+                AlertaFirestoreCreada = !duplicada,
+                NombreProceso = proceso,
+                EscriturasSospechosas = reporte.EscriturasSospechosas,
+                RenombradosSospechosas = reporte.RenombradosSospechosas,
+                ExtensionSospechosa = reporte.ExtensionSospechosa,
+                ExtensionDetectada = reporte.ExtensionDetectada,
+                RutaEjecutableOriginal = reporte.RutaEjecutable,
+                CuarentenaExitosa = cuarentena?.Exitosa,
+                RutaCuarentena = cuarentena?.RutaCuarentena,
+                CuarentenaError = cuarentena?.Error,
+                EventosArchivoEnCiclo = eventosArchivoEnCiclo < 0 ? 0 : eventosArchivoEnCiclo,
+                Resumen = resumen
+            };
+
+            await colLogs.AddAsync(log, ct).ConfigureAwait(false);
+            _logger.LogInformation("Log amenaza persistido: {Proceso} alertaNueva={Nueva} eventosCiclo={Ev}",
+                proceso, !duplicada, eventosArchivoEnCiclo);
+
+            if (duplicada)
                 return;
-            }
 
             var alerta = new Alerta
             {
@@ -115,6 +149,27 @@ public class FirebaseAlertService : IFirebaseAlertService
         {
             _logger.LogError(ex, "Error al enviar alerta a Firebase");
         }
+    }
+
+    private static string ConstruirResumen(ReporteAmenaza reporte, ResultadoCuarentena? cuarentena, int eventosArchivoEnCiclo, bool deduplicada)
+    {
+        var partes = new List<string>
+        {
+            $"proceso={reporte.NombreProceso}",
+            $"escrituras={reporte.EscriturasSospechosas}",
+            $"renombrados={reporte.RenombradosSospechosas}",
+            $"extensionSospechosa={reporte.ExtensionSospechosa}",
+        };
+        if (!string.IsNullOrEmpty(reporte.ExtensionDetectada))
+            partes.Add($"ext={reporte.ExtensionDetectada}");
+        if (!string.IsNullOrEmpty(reporte.RutaEjecutable))
+            partes.Add($"ruta={reporte.RutaEjecutable}");
+        if (eventosArchivoEnCiclo >= 0)
+            partes.Add($"eventosArchivoCiclo={eventosArchivoEnCiclo}");
+        if (cuarentena != null)
+            partes.Add(cuarentena.Exitosa ? "cuarentena=OK" : $"cuarentena=fallo:{cuarentena.Error}");
+        partes.Add(deduplicada ? "alertaFirestore=omitida_dedup_10min" : "alertaFirestore=creada");
+        return string.Join(" | ", partes);
     }
 
 }

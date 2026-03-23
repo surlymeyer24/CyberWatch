@@ -52,10 +52,13 @@ Dashboard (React, `Front/`) ──── Firestore ───► Service (Session
 |---|---|
 | `cyberwatch_instancias/{machineId}` | Registro de cada máquina: hostname, IP, versión, geolocalización IP y GPS, última conexión, comando remoto |
 | `cyberwatch_instancias/{machineId}/alertas/` | Subcollection de alertas por máquina (ransomware y eventos de seguridad). Dedup: no se crea alerta duplicada si ya existe una con los mismos campos clave en los últimos 10 minutos. Incluye `extensionDetectada` para identificar la extensión sospechosa que disparó la alerta |
+| `cyberwatch_instancias/{machineId}/logs_amenazas/` | **Auditoría de detecciones ransomware:** un documento por cada ciclo en que se detecta amenaza (append-only). Incluye repeticiones aunque no se cree nueva entrada en `alertas` por dedup; campos `alertaFirestoreCreada`, `eventosArchivoEnCiclo`, `resumen`, cuarentena, etc. El dashboard consulta con `CollectionGroup("logs_amenazas")` |
 | `cyberwatch_instancias/{machineId}/historial_navegacion/` | Subcollection de historial de navegación por máquina. Cada documento contiene: `url`, `titulo`, `fecha_visita`, `navegador` (chrome/edge/firefox), `perfil`, `sincronizado`. Sync cada 30 minutos, solo entradas nuevas |
 | `config/ciberseguridad` | Configuración global: versión actual y URL de descarga para actualizaciones |
 
 > **Nota:** El Dashboard lee alertas de todas las máquinas usando `CollectionGroup("alertas")`. Requiere un **single field index exemption** en Firestore para el campo `fechaHora` con scope "Collection group" (Descending).
+
+> **Índice `logs_amenazas`:** Tras desplegar reglas/índices, ejecutá `firebase deploy --only firestore:indexes` (el archivo `firestore.indexes.json` define el índice de collection group sobre `fechaHora` descendente).
 
 > **Índice compuesto requerido:** La deduplicación de alertas usa `WhereEqualTo("nombreProceso") + WhereGreaterThanOrEqualTo("fechaHora")`, lo que requiere un **composite index** en la subcollección `alertas` (campos: `nombreProceso` ASC, `fechaHora` DESC). Firestore lo solicita automáticamente en el error log con un link para crearlo.
 

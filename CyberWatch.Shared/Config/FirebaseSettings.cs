@@ -27,6 +27,8 @@ public class FirebaseSettings
     public string? CredentialJson { get; set; }
 
     public string FirestoreCollectionAlertas    { get; set; } = "alertas";
+    /// <summary>Subcolección por máquina: historial completo de detecciones ransomware (incluye repeticiones).</summary>
+    public string FirestoreCollectionLogsAmenazas { get; set; } = "logs_amenazas";
     public string FirestoreColeccionInstancias  { get; set; } = "cyberwatch_instancias";
     public int    IntervaloRegistroInstanciaMinutos { get; set; } = 5;
 

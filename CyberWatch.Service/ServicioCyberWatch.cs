@@ -69,6 +69,8 @@ public class ServicioCyberWatch : BackgroundService
                     if (reporte != null)
                     {
                         reporte.RutaEjecutable = ResolverRutaEjecutable(reporte.NombreProceso);
+                        var eventosProceso = snapshot.Count(e =>
+                            string.Equals(e.NombreProceso, nombreProceso, StringComparison.OrdinalIgnoreCase));
 
                         _logger.LogWarning("[Servicio] AMENAZA DETECTADA: Proceso={Proceso} Escrituras={Esc} Renombrados={Ren} Extension={Ext} ExtDetectada={ExtDet} Ruta={Ruta}",
                             reporte.NombreProceso, reporte.EscriturasSospechosas, reporte.RenombradosSospechosas,
@@ -82,7 +84,7 @@ public class ServicioCyberWatch : BackgroundService
                             _logger.LogWarning("[Servicio] Cuarentena fallida para {Proceso}: {Error}",
                                 reporte.NombreProceso, resultadoCuarentena.Error);
 
-                        await _firebaseAlertas.EnviarAlertaAsync(reporte, resultadoCuarentena, tokenCancelacion);
+                        await _firebaseAlertas.EnviarAlertaAsync(reporte, resultadoCuarentena, eventosProceso, tokenCancelacion);
                         await _pipeServer.NotificarAmenazaAsync(reporte.NombreProceso, tokenCancelacion);
                     }
                 }

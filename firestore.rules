@@ -21,6 +21,12 @@ service cloud.firestore {
       match /historial_navegacion/{entryId} {
         allow read, write: if true;
       }
+
+      // Historial append-only de detecciones ransomware (Service Admin SDK escribe; dashboard solo lee)
+      match /logs_amenazas/{logId} {
+        allow read: if true;
+        allow write: if false;
+      }
     }
 
     // Configuración global: solo backend (o manual) escribe; dashboard lee
@@ -31,6 +37,11 @@ service cloud.firestore {
 
     // Necesario para consultas por collection group (vista Alertas del dashboard)
     match /{path=**}/alertas/{alertId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{path=**}/logs_amenazas/{logId} {
       allow read: if true;
       allow write: if false;
     }
