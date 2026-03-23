@@ -30,6 +30,12 @@ public class FirebaseSettings
     public string FirestoreColeccionInstancias  { get; set; } = "cyberwatch_instancias";
     public int    IntervaloRegistroInstanciaMinutos { get; set; } = 5;
 
+    /// <summary>
+    /// Dominio de empresa para filtrar perfiles de Chrome/Edge (ej: bacarsa.com.ar).
+    /// Si está vacío, se incluyen todos los perfiles.
+    /// </summary>
+    public string? DominioEmpresa { get; set; }
+
     public bool IsAdminConfigured =>
         (!string.IsNullOrWhiteSpace(CredentialPath) && File.Exists(CredentialPath)) ||
         !string.IsNullOrWhiteSpace(CredentialJson);

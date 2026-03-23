@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CyberWatch.Shared.Models;
 using Google.Cloud.Firestore;
 using Microsoft.Data.Sqlite;
@@ -15,26 +16,28 @@ public static class LectorHistorialSqlite
 
     /// <summary>
     /// Descubre perfiles y lee historial de Chrome.
+    /// Si dominioEmpresa no es null, solo incluye perfiles cuyo email termina en @dominioEmpresa.
     /// </summary>
-    public static List<EntradaHistorial> LeerChrome(DateTime despuesDe, ILogger logger)
+    public static List<EntradaHistorial> LeerChrome(DateTime despuesDe, ILogger logger, string? dominioEmpresa = null)
     {
         var basePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Google", "Chrome", "User Data");
 
-        return LeerPerfilesChromium(basePath, "chrome", despuesDe, logger);
+        return LeerPerfilesChromium(basePath, "chrome", despuesDe, logger, dominioEmpresa);
     }
 
     /// <summary>
     /// Descubre perfiles y lee historial de Edge.
+    /// Si dominioEmpresa no es null, solo incluye perfiles cuyo email termina en @dominioEmpresa.
     /// </summary>
-    public static List<EntradaHistorial> LeerEdge(DateTime despuesDe, ILogger logger)
+    public static List<EntradaHistorial> LeerEdge(DateTime despuesDe, ILogger logger, string? dominioEmpresa = null)
     {
         var basePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Microsoft", "Edge", "User Data");
 
-        return LeerPerfilesChromium(basePath, "edge", despuesDe, logger);
+        return LeerPerfilesChromium(basePath, "edge", despuesDe, logger, dominioEmpresa);
     }
 
     /// <summary>
@@ -68,7 +71,7 @@ public static class LectorHistorialSqlite
     }
 
     private static List<EntradaHistorial> LeerPerfilesChromium(
-        string basePath, string navegador, DateTime despuesDe, ILogger logger)
+        string basePath, string navegador, DateTime despuesDe, ILogger logger, string? dominioEmpresa)
     {
         if (!Directory.Exists(basePath))
         {
@@ -76,22 +79,79 @@ public static class LectorHistorialSqlite
             return [];
         }
 
+        var infoPerfiles = LeerInfoPerfilesLocalState(basePath);
         var entradas = new List<EntradaHistorial>();
 
         foreach (var perfilDir in Directory.GetDirectories(basePath))
         {
-            var nombrePerfil = Path.GetFileName(perfilDir);
-            if (nombrePerfil != "Default" && !nombrePerfil.StartsWith("Profile "))
+            var nombreCarpeta = Path.GetFileName(perfilDir);
+            if (nombreCarpeta != "Default" && !nombreCarpeta.StartsWith("Profile "))
                 continue;
 
             var historyDb = Path.Combine(perfilDir, "History");
             if (!File.Exists(historyDb)) continue;
+
+            // Obtener nombre de persona y email desde Local State
+            var (nombrePerfil, email) = infoPerfiles.TryGetValue(nombreCarpeta, out var info)
+                ? info
+                : (nombreCarpeta, string.Empty);
+
+            // Filtrar por dominio empresa si está configurado
+            if (!string.IsNullOrEmpty(dominioEmpresa))
+            {
+                if (!email.EndsWith($"@{dominioEmpresa}", StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogDebug("[Historial] Saltando perfil {Carpeta} ({Email}): no es cuenta empresa",
+                        nombreCarpeta, string.IsNullOrEmpty(email) ? "sin email" : email);
+                    continue;
+                }
+            }
 
             var items = LeerChromiumDb(historyDb, navegador, nombrePerfil, despuesDe, logger);
             entradas.AddRange(items);
         }
 
         return entradas;
+    }
+
+    /// <summary>
+    /// Lee el archivo Local State de Chromium y devuelve un mapa de
+    /// nombre de carpeta → (nombre de persona, email de Google).
+    /// </summary>
+    private static Dictionary<string, (string Nombre, string Email)> LeerInfoPerfilesLocalState(string basePath)
+    {
+        var resultado = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
+        var localStatePath = Path.Combine(basePath, "Local State");
+        if (!File.Exists(localStatePath)) return resultado;
+
+        try
+        {
+            using var stream = File.OpenRead(localStatePath);
+            using var doc = JsonDocument.Parse(stream);
+
+            if (!doc.RootElement.TryGetProperty("profile", out var profileEl)) return resultado;
+            if (!profileEl.TryGetProperty("info_cache", out var infoCache)) return resultado;
+
+            foreach (var entry in infoCache.EnumerateObject())
+            {
+                var carpeta = entry.Name;
+                var nombre = entry.Value.TryGetProperty("name", out var nameProp)
+                    ? nameProp.GetString() ?? carpeta
+                    : carpeta;
+                var email = entry.Value.TryGetProperty("user_name", out var emailProp)
+                    ? emailProp.GetString() ?? string.Empty
+                    : string.Empty;
+
+                resultado[carpeta] = (nombre, email);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Local State puede estar bloqueado si el navegador está abierto; no es crítico
+            _ = ex;
+        }
+
+        return resultado;
     }
 
     private static List<EntradaHistorial> LeerChromiumDb(

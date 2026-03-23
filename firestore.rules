@@ -42,5 +42,11 @@ service cloud.firestore {
     match /tareas/{id} {
       allow read, write: if true;
     }
+
+    // Logs de actualización del agente: el agente escribe, el dashboard lee
+    match /logs_actualizaciones/{id} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

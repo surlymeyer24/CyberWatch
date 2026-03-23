@@ -92,6 +92,22 @@ Cada vez que se implemente un cambio significativo (nueva feature, fix de bug, c
 
 ---
 
+## Error en release: verificar si la clave fue expuesta
+
+Si al crear o publicar un release aparece un error relacionado con credenciales, autenticación o permisos de Firebase/Google, **verificar primero si `serviceAccountKey.json` fue commiteado accidentalmente al repositorio**.
+
+GitHub y Google tienen detección automática de claves expuestas y pueden revocarlas o bloquear el push.
+
+**Checklist:**
+1. Revisar `git log --all -- auth/serviceAccountKey.json` — si aparece en el historial, la clave fue expuesta
+2. Ir a Google Cloud Console → IAM → Cuentas de servicio → revocar y regenerar la clave
+3. Limpiar el historial de git con `git filter-repo` o BFG para eliminar el archivo del historial
+4. Asegurarse de que `serviceAccountKey.json` está en `.gitignore`
+
+**Regla:** `serviceAccountKey.json` nunca debe estar en el repositorio. Se copia manualmente a la carpeta de publish antes del release.
+
+---
+
 ## Recordar push antes del release
 
 Al terminar de implementar una funcionalidad o fix, SIEMPRE recordar al usuario:

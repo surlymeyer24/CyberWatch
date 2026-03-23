@@ -86,9 +86,10 @@ public class HistorialNavegacionService : BackgroundService
         _logger.LogInformation("[Historial] Iniciando exportación de historial completo...");
 
         // Leer todo el historial (desde el inicio de los tiempos)
+        var dominio = string.IsNullOrWhiteSpace(_firebase.DominioEmpresa) ? null : _firebase.DominioEmpresa;
         var entradas = new List<EntradaHistorial>();
-        entradas.AddRange(LectorHistorialSqlite.LeerChrome(DateTime.MinValue, _logger));
-        entradas.AddRange(LectorHistorialSqlite.LeerEdge(DateTime.MinValue, _logger));
+        entradas.AddRange(LectorHistorialSqlite.LeerChrome(DateTime.MinValue, _logger, dominio));
+        entradas.AddRange(LectorHistorialSqlite.LeerEdge(DateTime.MinValue, _logger, dominio));
         entradas.AddRange(LectorHistorialSqlite.LeerFirefox(DateTime.MinValue, _logger));
 
         if (entradas.Count == 0)
@@ -198,9 +199,10 @@ public class HistorialNavegacionService : BackgroundService
         FirestoreDb db, string machineId, CancellationToken ct)
     {
         // Leer historial de los tres navegadores
+        var dominio = string.IsNullOrWhiteSpace(_firebase.DominioEmpresa) ? null : _firebase.DominioEmpresa;
         var entradas = new List<EntradaHistorial>();
-        entradas.AddRange(LectorHistorialSqlite.LeerChrome(_ultimaSync, _logger));
-        entradas.AddRange(LectorHistorialSqlite.LeerEdge(_ultimaSync, _logger));
+        entradas.AddRange(LectorHistorialSqlite.LeerChrome(_ultimaSync, _logger, dominio));
+        entradas.AddRange(LectorHistorialSqlite.LeerEdge(_ultimaSync, _logger, dominio));
         entradas.AddRange(LectorHistorialSqlite.LeerFirefox(_ultimaSync, _logger));
 
         if (entradas.Count == 0)

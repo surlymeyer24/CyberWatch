@@ -102,7 +102,8 @@ La detección se basa en umbrales (cantidad de escrituras/renombrados en una ven
 
 | Comando | Destino | Acción |
 |---|---|---|
-| `actualizar_agente` | Service | Descarga el ZIP del release, extrae, reemplaza binarios, reinicia servicio y UserAgent. Post-reinicio: fuerza creación de tarea en Task Scheduler, ejecuta UserAgent, reporta log del batch en `comando_resultado` |
+| `actualizar_agente` | Service | Descarga el ZIP del release, extrae, lanza batch de actualización (`Process.Start` directo, sin Task Scheduler), reinicia servicio y UserAgent. Post-reinicio: fuerza creación de tarea en Task Scheduler, ejecuta UserAgent, reporta log del batch en `comando_resultado` |
+| `reiniciar_servicio` | Service | Lanza batch que hace `net stop` + `net start` del servicio. Útil para aplicar cambios de configuración sin actualizar binarios |
 | `captura` | UserAgent | Toma screenshot, lo guarda en `%LOCALAPPDATA%\CyberWatch\capturas\`, lo sube a Firebase Storage y escribe la URL firmada en Firestore |
 | `historial_completo` | UserAgent | Lee todo el historial de Chrome/Edge/Firefox, lo exporta como JSON a `%LOCALAPPDATA%\CyberWatch\historial\`, lo sube a Firebase Storage y escribe la URL firmada en Firestore. Si falla (sin entradas, Storage no configurado, error de subida), escribe el mensaje en `ultima_historial_completo_error`. Ver [docs/NAVEGACION.md](docs/NAVEGACION.md) |
 
@@ -114,6 +115,7 @@ La detección se basa en umbrales (cantidad de escrituras/renombrados en una ven
 - **Servidor:** `AgentePipeServerService` (Service, Session 0, SYSTEM — acepta `AuthenticatedUsers`)
 - **Cliente:** `PipClientService` (UserAgent)
 - **Protocolo:** JSON `{"tipo":"amenaza","proceso":"<nombre>"}` — el Service notifica al UserAgent cuando detecta una amenaza
+- **Keepalive:** el servidor envía `{"tipo":"ping"}` cada 20 segundos para mantener la conexión activa y detectar desconexiones
 
 ---
 
@@ -152,12 +154,19 @@ Ver [docs/DEPLOY.md](docs/DEPLOY.md) para la guía completa.
 3. El workflow: compila Service + UserAgent, embebe credenciales en `appsettings.json`, crea ZIP, sube a GitHub Releases, actualiza `config/ciberseguridad` en Firestore
 4. En la máquina destino: el Service detecta la nueva versión via listener Firestore y ejecuta `actualizar_agente` automáticamente, o bien se envía el comando desde el Dashboard
 
-**Primera instalación en una máquina:**
+**Primera instalación (o reinstalación manual) en una máquina:**
 
 ```powershell
-# Como administrador
+# Como administrador — desde la carpeta con los binarios
 .\install.bat
 ```
+
+El `install.bat` ejecuta estos pasos automáticamente:
+1. Detiene el Service (`net stop`) y UserAgent (`taskkill`)
+2. Copia todos los archivos a `C:\Program Files\CyberWatch\`
+3. Registra/actualiza el Windows Service (`sc create`/`sc config` + `net start`)
+4. Espera 5 segundos para inicialización
+5. Lanza el UserAgent directamente (`start`)
 
 **Reglas de Firestore (firebase.json):** Para poder ejecutar `firebase deploy --only firestore:rules` desde la raíz del repo, `firebase.json` debe incluir la sección `firestore` con la ruta a las reglas, por ejemplo: `"firestore": { "rules": "firestore.rules" }`. Sin esa sección, el CLI no encuentra el target y falla.
 
@@ -185,6 +194,11 @@ El ID de máquina se deriva del UUID de hardware via WMI (`Win32_ComputerSystemP
 - [x] **`InternalBufferOverflow` en `C:\`** — resuelto: el monitor de archivos ahora monitorea solo `C:\Users\` en el drive del sistema (en vez de la raíz completa), eliminando el ruido de `Windows\`, `ProgramData\`, etc. Drives de red removidos del monitoreo.
 - [x] **`EventLog access is not supported` al correr con `dotnet run`** — resuelto: `logging.ClearProviders()` en `Program.cs` del Service para evitar el `EventLogLoggerProvider` que `CreateDefaultBuilder` agrega automáticamente.
 - [x] **Doble ejecución de `actualizar_agente` (v4.7.0)** — el listener de Firestore disparaba el comando dos veces: la segunda ejecución arrancaba después de que la primera liberaba el lock (`_ejecutando = 0`), lanzando un segundo bat que hacía `net stop` al service recién reiniciado. Fix: `await Task.Delay(Timeout.Infinite, ct)` tras lanzar el script, manteniendo el lock hasta que el CancellationToken cancele al apagarse el service.
+- [x] **Batch de actualización nunca se ejecutaba (v5.6.0)** — `schtasks /Create` + `schtasks /Run` reportaban éxito pero el batch no corría realmente (problema de formato de fecha/hora y comportamiento inconsistente de Task Scheduler). Fix: eliminado Task Scheduler completamente, ahora se usa `Process.Start` directo del `.bat`. Los procesos hijos de un Windows Service sobreviven al `net stop` (SCM solo detiene el servicio, no mata el árbol de procesos).
+- [x] **`FirebaseAlertService` fallaba en producción (v5.6.0)** — usaba `GoogleCredential.FromFile(_settings.CredentialPath)` pero en deploy `CredentialPath` es `""` (las credenciales se embeben como `CredentialJson`). Fix: usa `GetEffectiveCredentialPath()` que escribe un archivo temporal desde `CredentialJson`.
+- [x] **Storage (capturas/historial) no funcionaba en producción (v5.6.0)** — `GoogleCredential.FromFile(credPath)` causaba file lock cuando múltiples servicios accedían al mismo archivo temporal de credenciales. Fix: `FromStream` con `using` para liberar el handle inmediatamente.
+- [x] **UserAgent crasheaba por `COMException` en GPS (v5.6.0)** — `Geolocator.RequestAccessAsync()` lanzaba `COMException (0x80070006)` (handle inválido) intermitentemente, y como no estaba en try/catch, mataba todo el host. Fix: try/catch alrededor de la inicialización del Geolocator, degrada gracefully (GPS desactivado para esa sesión).
+- [x] **`install.bat` no iniciaba UserAgent (v5.6.0)** — el instalador solo registraba el Windows Service y dependía de que el Service registrara la tarea de Task Scheduler. Fix: `install.bat` ahora lanza el UserAgent directamente con `start` además de registrar el Service.
 
 ### Refactoring pendiente
 
