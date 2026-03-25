@@ -82,9 +82,11 @@ Por defecto el script **también genera** **`CyberWatch.Service.zip`** junto a l
 
 El comando **`actualizar_agente`** genera un `.bat` en **`%TEMP%`** que hace `net stop CyberWatch`, copia archivos y luego `net start`. Ese batch **no puede** ejecutarse como proceso hijo directo del propio servicio: al parar el servicio, Windows suele **terminar también el `cmd.exe` hijo**, y el script **no llega** a `net start` → hay que reiniciar el servicio a mano.
 
-En versiones recientes el Service programa ese `.bat` con el **Programador de tareas** (`schtasks`, tarea bajo `CyberWatch\RemoteUpd_*` o `CyberWatch\RemoteRst_*` para reinicio), de modo que el proceso **no depende** del árbol del servicio. Si `schtasks` falla (políticas), se usa un **fallback** con `cmd /c start /MIN`.
+En versiones recientes el Service programa ese `.bat` con el **Programador de tareas** (`schtasks`, tarea bajo `CyberWatch\RemoteUpd_*` o `CyberWatch\RemoteRst_*` para reinicio), de modo que el proceso **no depende** del árbol del servicio. La tarea se crea con **`/RU SYSTEM`** y **`/RL HIGHEST`**. Si `schtasks` falla (políticas), se usa un **fallback** con `cmd /c start /MIN` (más frágil: si ves el servicio detenido y el batch no avanza, revisá que `schtasks` no esté bloqueado).
 
-**Diagnóstico en la PC remota:** revisá **`%TEMP%\cw_update.log`** (salida de `net stop`, `xcopy`, `net start` y códigos de salida).
+El script espera con **PowerShell** a que el servicio quede realmente en **`Stopped`** (hasta ~90 s), pausa tras **`xcopy`** y reintenta el arranque con **`net start`**, **`sc start`** y **`Start-Service`** (hasta 15 intentos). Así se reduce el caso en que Firestore queda en **`reiniciando`** y hace falta un **`net start CyberWatch`** manual porque el SCM aún no había liberado el proceso o el `.exe` seguía bloqueado.
+
+**Diagnóstico en la PC remota:** revisá **`%TEMP%\cw_update.log`** (incluye `espera_stopped`, cada intento de arranque con código y la salida de `xcopy`).
 
 ---
 

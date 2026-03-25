@@ -268,6 +268,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
         var schtasksCleanupName = $"CyberWatch\\RemoteUpd_{Guid.NewGuid():N}";
         File.WriteAllText(scriptPath,
             $"@echo off\r\n" +
+            $"setlocal EnableDelayedExpansion\r\n" +
             $"echo [%DATE% %TIME%] === INICIO ACTUALIZACION === >> \"{logPath}\"\r\n" +
             $"echo [%DATE% %TIME%] Install dir: {installDir} >> \"{logPath}\"\r\n" +
             $"echo [%DATE% %TIME%] Extract path: {extractPath} >> \"{logPath}\"\r\n" +
@@ -278,25 +279,20 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $"echo [%DATE% %TIME%] Matando CyberWatch.UserAgent.exe... >> \"{logPath}\"\r\n" +
             $"taskkill /F /IM CyberWatch.UserAgent.exe /T >> \"{logPath}\" 2>&1\r\n" +
             $"echo [%DATE% %TIME%] taskkill exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
-            $"timeout /t 2 /nobreak >nul\r\n" +
+            $"timeout /t 3 /nobreak >nul\r\n" +
+            BatchWaitCyberWatchStopped(logPath) +
             $"echo [%DATE% %TIME%] Copiando archivos... >> \"{logPath}\"\r\n" +
             $"xcopy /E /I /Y \"{extractPath}\\*\" \"{installDir}\\\" >> \"{logPath}\" 2>&1\r\n" +
             $"echo [%DATE% %TIME%] xcopy exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
-            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch (reintentos)... >> \"{logPath}\"\r\n" +
-            $"set CW_START_TRIES=0\r\n" +
-            $":cw_try_start\r\n" +
-            $"set /a CW_START_TRIES+=1\r\n" +
-            $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
-            $"if not errorlevel 1 goto cw_start_ok\r\n" +
-            $"if %CW_START_TRIES% geq 8 goto cw_start_fail\r\n" +
-            $"echo [%DATE% %TIME%] net start fallo, reintento %CW_START_TRIES%... >> \"{logPath}\"\r\n" +
-            $"timeout /t 4 /nobreak >nul\r\n" +
-            $"goto cw_try_start\r\n" +
+            $"echo [%DATE% %TIME%] Pausa post-copia (liberar exe / AV)... >> \"{logPath}\"\r\n" +
+            $"timeout /t 6 /nobreak >nul\r\n" +
+            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch (reintentos net/sc/powershell)... >> \"{logPath}\"\r\n" +
+            BatchStartCyberWatchRetryBlock(logPath, "cw_try_start", "cw_start_ok", "cw_start_fail", maxTries: 15, delaySec: 5) +
             $":cw_start_fail\r\n" +
-            $"echo [%DATE% %TIME%] ERROR: net start tras reintentos >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] ERROR: no se pudo iniciar el servicio tras reintentos >> \"{logPath}\"\r\n" +
             $"goto cw_update_cleanup\r\n" +
             $":cw_start_ok\r\n" +
-            $"echo [%DATE% %TIME%] net start exitcode: 0 >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] Servicio CyberWatch iniciado OK >> \"{logPath}\"\r\n" +
             $":cw_update_cleanup\r\n" +
             $"echo [%DATE% %TIME%] === FIN ACTUALIZACION === >> \"{logPath}\"\r\n" +
             $"schtasks /Delete /TN \"{schtasksCleanupName}\" /F >> \"{logPath}\" 2>&1\r\n" +
@@ -332,21 +328,17 @@ public class EjecutorTareasFirebaseService : BackgroundService
 
         File.WriteAllText(scriptPath,
             $"@echo off\r\n" +
+            $"setlocal EnableDelayedExpansion\r\n" +
             $"echo [%DATE% %TIME%] === REINICIO MANUAL === >> \"{logPath}\"\r\n" +
             $"timeout /t 3 /nobreak >nul\r\n" +
             $"echo [%DATE% %TIME%] Deteniendo servicio CyberWatch... >> \"{logPath}\"\r\n" +
             $"net stop CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+            $"timeout /t 3 /nobreak >nul\r\n" +
+            BatchWaitCyberWatchStopped(logPath) +
             $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch (reintentos)... >> \"{logPath}\"\r\n" +
-            $"set CW_RST_TRIES=0\r\n" +
-            $":cw_rst_try\r\n" +
-            $"set /a CW_RST_TRIES+=1\r\n" +
-            $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
-            $"if not errorlevel 1 goto cw_rst_ok\r\n" +
-            $"if %CW_RST_TRIES% geq 8 goto cw_rst_fail\r\n" +
-            $"timeout /t 4 /nobreak >nul\r\n" +
-            $"goto cw_rst_try\r\n" +
+            BatchStartCyberWatchRetryBlock(logPath, "cw_rst_try", "cw_rst_ok", "cw_rst_fail", maxTries: 15, delaySec: 5) +
             $":cw_rst_fail\r\n" +
-            $"echo [%DATE% %TIME%] ERROR: net start tras reintentos >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] ERROR: no se pudo iniciar el servicio tras reintentos >> \"{logPath}\"\r\n" +
             $"goto cw_rst_end\r\n" +
             $":cw_rst_ok\r\n" +
             $":cw_rst_end\r\n" +
@@ -451,6 +443,9 @@ public class EjecutorTareasFirebaseService : BackgroundService
             createPsi.ArgumentList.Add(st);
             createPsi.ArgumentList.Add("/RL");
             createPsi.ArgumentList.Add("HIGHEST");
+            // Misma cuenta que el servicio (LocalSystem): evita tareas creadas sin principal claro.
+            createPsi.ArgumentList.Add("/RU");
+            createPsi.ArgumentList.Add("SYSTEM");
 
             using var createProc = Process.Start(createPsi);
             var cout = createProc?.StandardOutput.ReadToEnd() ?? "";
@@ -495,6 +490,41 @@ public class EjecutorTareasFirebaseService : BackgroundService
             return false;
         }
     }
+
+    /// <summary>
+    /// Fragmento .bat: espera hasta ~90 s a que el servicio quede en Stopped (no depende del idioma de <c>sc query</c>).
+    /// </summary>
+    private static string BatchWaitCyberWatchStopped(string logPath) =>
+        $"echo [%DATE% %TIME%] Esperando estado Stopped en SCM (PowerShell)... >> \"{logPath}\"\r\n" +
+        $"powershell -NoProfile -ExecutionPolicy Bypass -Command \"" +
+        $"for ($i=0; $i -lt 45; $i++) {{ " +
+        $"$s = (Get-Service -Name 'CyberWatch' -EA SilentlyContinue).Status; " +
+        $"if ($s -eq 'Stopped') {{ exit 0 }}; Start-Sleep -s 2 }}; exit 1\" " +
+        $">> \"{logPath}\" 2>&1\r\n" +
+        $"echo [%DATE% %TIME%] espera_stopped codigo=%ERRORLEVEL% >> \"{logPath}\"\r\n";
+
+    /// <summary>
+    /// Reintentos de arranque: <c>net start</c>, <c>sc start</c>, <c>Start-Service</c> (captura ERRORLEVEL fiable con delayed expansion).
+    /// </summary>
+    private static string BatchStartCyberWatchRetryBlock(
+        string logPath, string tryLabel, string okLabel, string failLabel, int maxTries, int delaySec) =>
+        $"set CW_START_TRIES=0\r\n" +
+        $":{tryLabel}\r\n" +
+        $"set /a CW_START_TRIES+=1\r\n" +
+        $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+        $"set CW_NS=!ERRORLEVEL!\r\n" +
+        $"echo [%DATE% %TIME%] intento !CW_START_TRIES! net start codigo=!CW_NS! >> \"{logPath}\"\r\n" +
+        $"if !CW_NS! equ 0 goto {okLabel}\r\n" +
+        $"sc start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+        $"set CW_NS=!ERRORLEVEL!\r\n" +
+        $"if !CW_NS! equ 0 goto {okLabel}\r\n" +
+        $"powershell -NoProfile -ExecutionPolicy Bypass -Command \"try {{ Start-Service -Name 'CyberWatch'; exit 0 }} catch {{ exit 1 }}\" >> \"{logPath}\" 2>&1\r\n" +
+        $"set CW_NS=!ERRORLEVEL!\r\n" +
+        $"if !CW_NS! equ 0 goto {okLabel}\r\n" +
+        $"if !CW_START_TRIES! geq {maxTries} goto {failLabel}\r\n" +
+        $"echo [%DATE% %TIME%] reintento en {delaySec}s... >> \"{logPath}\"\r\n" +
+        $"timeout /t {delaySec} /nobreak >nul\r\n" +
+        $"goto {tryLabel}\r\n";
 
     /// <summary>
     /// Segundo intento si schtasks falla (políticas, etc.): <c>start</c> deja un cmd independiente.

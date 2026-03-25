@@ -2,11 +2,36 @@ using CyberWatch.Service;
 using CyberWatch.Service.Config;
 using CyberWatch.Shared.Config;
 using CyberWatch.Service.Detection;
+using CyberWatch.Shared.Helpers;
 using CyberWatch.Shared.Logging;
 using CyberWatch.Service.Monitoring;
 using CyberWatch.Service.Response;
 using CyberWatch.Service.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
+
+// Modo consola: versión desplegada (misma lectura que en runtime: appsettings.json junto al .exe)
+if (args.Length > 0)
+{
+    var a = args[0].Trim();
+    if (string.Equals(a, "--version", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(a, "-v", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(a, "/version", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(a, "-version", StringComparison.OrdinalIgnoreCase))
+    {
+        var cfg = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+            .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false)
+            .AddEnvironmentVariables()
+            .Build();
+        var sec = cfg.GetSection(AppVersionSettings.SectionName);
+        var version = sec["Version"] ?? "?";
+        var serviceName = sec["ServiceName"] ?? "CyberWatch";
+        Console.WriteLine($"{serviceName} {version}");
+        return;
+    }
+}
 
 IHost host = Host.CreateDefaultBuilder(args)
     .UseWindowsService()
@@ -16,6 +41,20 @@ IHost host = Host.CreateDefaultBuilder(args)
         logging.AddConsole();
         logging.SetMinimumLevel(LogLevel.Information);
         logging.AddProvider(new FileLoggerProvider("cyberwatch_service.log", null, LogLevel.Information));
+
+        // Logs centralizados en Firestore
+        var fbSettings = new FirebaseSettings();
+        context.Configuration.GetSection(FirebaseSettings.SectionName).Bind(fbSettings);
+        if (fbSettings.IsAdminConfigured)
+        {
+            var credPath = fbSettings.GetEffectiveCredentialPath();
+            if (credPath != null)
+            {
+                var firestoreDb = FirestoreDbFactory.Create(fbSettings.ProjectId, credPath);
+                var machineId = MachineIdHelper.Read() ?? "unknown";
+                logging.AddProvider(new FirestoreLoggerProvider(firestoreDb, "CyberWatch.Service", machineId, Environment.MachineName));
+            }
+        }
     })
     .ConfigureServices((context, servicios) =>
     {

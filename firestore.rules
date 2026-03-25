@@ -66,5 +66,10 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    // Logs centralizados (Service, UserAgent, MiniAgente) — dashboard en tiempo real
+    match /cyberwatch_logs/{logId} {
+      allow read, write: if true;
+    }
   }
 }

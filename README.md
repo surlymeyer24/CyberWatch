@@ -55,6 +55,7 @@ Dashboard (React, `Front/`) ──── Firestore ───► Service (Session
 | `cyberwatch_instancias/{machineId}/logs_amenazas/` | **Auditoría de detecciones ransomware:** un documento por cada ciclo en que se detecta amenaza (append-only). Incluye repeticiones aunque no se cree nueva entrada en `alertas` por dedup; campos `alertaFirestoreCreada`, `eventosArchivoEnCiclo`, `resumen`, cuarentena, etc. El dashboard consulta con `CollectionGroup("logs_amenazas")` |
 | `cyberwatch_instancias/{machineId}/historial_navegacion/` | Subcollection de historial de navegación por máquina. Cada documento contiene: `url`, `titulo`, `fecha_visita`, `navegador` (chrome/edge/firefox), `perfil`, `sincronizado`. Sync cada 30 minutos, solo entradas nuevas |
 | `config/ciberseguridad` | Configuración global: versión actual y URL de descarga para actualizaciones |
+| `cyberwatch_logs/` | **Logs centralizados:** Service, UserAgent (vía `FirestoreLoggerProvider`) y MiniAgente escriben aquí; el dashboard (`Front`, ruta `/logs`) muestra la tabla en tiempo real con `onSnapshot` |
 
 > **Nota:** El Dashboard lee alertas de todas las máquinas usando `CollectionGroup("alertas")`. Requiere un **single field index exemption** en Firestore para el campo `fechaHora` con scope "Collection group" (Descending).
 
