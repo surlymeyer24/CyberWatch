@@ -58,7 +58,7 @@ Dashboard (React, `Front/`) ──── Firestore ───► Service (Session
 
 > **Nota:** El Dashboard lee alertas de todas las máquinas usando `CollectionGroup("alertas")`. Requiere un **single field index exemption** en Firestore para el campo `fechaHora` con scope "Collection group" (Descending).
 
-> **Índice `logs_amenazas`:** Tras desplegar reglas/índices, ejecutá `firebase deploy --only firestore:indexes` (el archivo `firestore.indexes.json` define el índice de collection group sobre `fechaHora` descendente).
+> **Índice `logs_amenazas`:** Ejecutá `firebase deploy --only firestore:indexes` (collection group `logs_amenazas` con `fechaHora` DESC y `__name__` DESC). Sin esto, la página **Alertas** (consulta global) falla; a veces el SDK muestra `permission-denied` en lugar de “falta índice”. Las reglas deben permitir lectura: `firebase deploy --only firestore:rules`.
 
 > **Índice compuesto requerido:** La deduplicación de alertas usa `WhereEqualTo("nombreProceso") + WhereGreaterThanOrEqualTo("fechaHora")`, lo que requiere un **composite index** en la subcollección `alertas` (campos: `nombreProceso` ASC, `fechaHora` DESC). Firestore lo solicita automáticamente en el error log con un link para crearlo.
 

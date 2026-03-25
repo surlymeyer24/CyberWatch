@@ -57,6 +57,14 @@ de identidad única.
 
 ---
 
+## Verificar documentación antes de cambios técnicos
+
+Antes de realizar cualquier cambio técnico (código, dependencias, configuración, comandos), buscar la documentación más reciente disponible. Implementar solo si hay certeza de que funcionará.
+
+**Objetivo:** Evitar código obsoleto y sugerencias basadas en APIs o versiones desactualizadas.
+
+---
+
 ## Flujo de trabajo: discutir antes de actuar
 
 Cuando el usuario mencione una idea, problema o posible cambio — sin importar el tipo de acción (código, arquitectura, configuración, comandos, etc.) — NO lo implementes directamente.

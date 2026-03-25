@@ -6,6 +6,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Ruta explícita para auditoría ransomware (además del match anidado abajo y del wildcard collection group).
+    // Si solo desplegaste reglas antiguas sin la subcolección, el dashboard verá permission-denied.
+    match /cyberwatch_instancias/{machineId}/logs_amenazas/{logId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Instancias: dashboard lee todo y escribe comando/comando_ua; Service y UserAgent escriben el resto
     match /cyberwatch_instancias/{machineId} {
       allow read, write: if true;

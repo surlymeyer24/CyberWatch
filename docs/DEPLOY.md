@@ -209,5 +209,5 @@ El front lee la subcolección **`cyberwatch_instancias/{id}/logs_amenazas`** y, 
    ```bash
    firebase deploy --only firestore:rules,firestore:indexes
    ```
-2. El índice de collection group está definido en **`firestore.indexes.json`** (`logs_amenazas` + `fechaHora` descendente). Sin ese índice, la consola puede mostrar un error; en algunos casos el mensaje parece de “permisos”.
+2. El índice de collection group está en **`firestore.indexes.json`** (`logs_amenazas`: `fechaHora` DESC y `__name__` DESC). Sin ese índice, la página **Alertas** falla; a veces el SDK muestra `permission-denied` en lugar de “falta índice”.
 3. Las reglas del repo ya permiten **lectura** de `logs_amenazas` (escritura solo desde el backend con cuenta de servicio). Si ves *Missing or insufficient permissions*, suele ser **reglas o índice no desplegados** o **projectId distinto** entre `.env` y la consola de Firebase.

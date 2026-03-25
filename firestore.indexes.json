@@ -1,11 +1,3 @@
 {
-  "indexes": [
-    {
-      "collectionGroup": "logs_amenazas",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "fechaHora", "order": "DESCENDING" }
-      ]
-    }
-  ]
+  "indexes": []
 }
