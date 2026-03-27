@@ -2,9 +2,11 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Text;
 using CyberWatch.Service.Config;
 using CyberWatch.Shared.Config;
 using CyberWatch.Shared.Helpers;
+using CyberWatch.Shared.Models;
 using Google.Cloud.Firestore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -23,6 +25,7 @@ namespace CyberWatch.Service.Services;
 ///
 /// Para disparar desde el Dashboard:
 ///   cyberwatch_instancias/{machineId} → { "comando": "<comando>" }
+/// Comandos: actualizar_agente, reiniciar_servicio, sc_query (consulta inmediata <c>sc query</c> y actualiza servicio_sc_*).
 /// </summary>
 public class EjecutorTareasFirebaseService : BackgroundService
 {
@@ -162,6 +165,25 @@ public class EjecutorTareasFirebaseService : BackgroundService
                         await Task.Delay(Timeout.Infinite, ct);
                         break;
 
+                    case "sc_query":
+                        _logger.LogInformation("[Comando] sc_query para servicio {Name}...", _app.ServiceName);
+                        var scInst = new InstanciaMaquina();
+                        ServicioScQueryHelper.AplicarEstadoServicioDesdeScQuery(_app.ServiceName, scInst);
+                        var scPatch = new Dictionary<string, object>
+                        {
+                            ["servicio_sc_estado"] = scInst.ServicioScEstado,
+                            ["servicio_sc_detalle"] = scInst.ServicioScDetalle ?? "",
+                            ["servicio_sc_consultado"] = scInst.ServicioScConsultado!,
+                            ["comando_estado"] = "completado",
+                            ["comando_resultado"] =
+                                $"sc query ({_app.ServiceName}): {scInst.ServicioScEstado} — {scInst.ServicioScDetalle ?? ""}"
+                        };
+                        scPatch["servicio_sc_salida"] = scInst.ServicioScSalida != null
+                            ? scInst.ServicioScSalida
+                            : FieldValue.Delete;
+                        await ActualizarDocAsync(docRef, scPatch, ct);
+                        break;
+
                     default:
                         _logger.LogWarning("[Comando] Comando desconocido: '{Cmd}'", comando);
                         await ActualizarDocAsync(docRef, new Dictionary<string, object>
@@ -193,8 +215,11 @@ public class EjecutorTareasFirebaseService : BackgroundService
 
     private async Task EjecutarActualizacionAgenteAsync(DocumentReference docRef, FirestoreDb db, CancellationToken ct)
     {
-        // 1. Leer url_descarga desde config/ciberseguridad
+        var serviceName = string.IsNullOrWhiteSpace(_app.ServiceName) ? "CyberWatch" : _app.ServiceName.Trim();
+
+        // 1. Leer url_descarga (y version opcional) desde config/ciberseguridad
         string url;
+        string? configVersion = null;
         try
         {
             var configSnap = await db.Collection("config").Document("ciberseguridad").GetSnapshotAsync(ct);
@@ -208,6 +233,8 @@ public class EjecutorTareasFirebaseService : BackgroundService
                 return;
             }
             url = u;
+            if (configSnap.TryGetValue<string>("version", out var ver) && !string.IsNullOrWhiteSpace(ver))
+                configVersion = ver.Trim();
         }
         catch (Exception ex)
         {
@@ -223,98 +250,125 @@ public class EjecutorTareasFirebaseService : BackgroundService
         var zipPath     = Path.Combine(Path.GetTempPath(), "cyberwatch_update.zip");
         var extractPath = Path.Combine(Path.GetTempPath(), "cyberwatch_update_tmp");
 
-        _logger.LogInformation("[Comando] Descargando actualización desde {Url}...", url);
+        _logger.LogInformation(
+            "[Comando][ActualizarAgente] Descargando — url={Url}, versionFirestore={Ver}, servicioWindows={Svc}",
+            url, configVersion ?? "(sin campo)", serviceName);
+        byte[] bytes;
         try
         {
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Add("User-Agent", "CyberWatch-Updater/1.0");
-            var bytes = await http.GetByteArrayAsync(url, ct);
+            bytes = await http.GetByteArrayAsync(url, ct);
             await File.WriteAllBytesAsync(zipPath, bytes, ct);
-            _logger.LogInformation("[Comando] Descarga completada: {Bytes} bytes", bytes.Length);
+            _logger.LogInformation(
+                "[Comando][ActualizarAgente] Descarga OK — {Bytes} bytes guardados en {Zip}",
+                bytes.Length, zipPath);
         }
         catch (Exception ex)
         {
             await ActualizarDocAsync(docRef, new Dictionary<string, object>
             {
                 ["comando_estado"]    = "error",
-                ["comando_resultado"] = $"Error al descargar: {ex.Message}"
+                ["comando_resultado"] = $"Error al descargar desde {url}: {ex.Message}"
             }, ct);
             return;
         }
 
         // 3. Extraer ZIP
+        int extractedFileCount;
         try
         {
             if (Directory.Exists(extractPath)) Directory.Delete(extractPath, true);
             ZipFile.ExtractToDirectory(zipPath, extractPath);
+            extractedFileCount = Directory.GetFiles(extractPath, "*", SearchOption.AllDirectories).Length;
+            _logger.LogInformation(
+                "[Comando][ActualizarAgente] Extracción OK — {Count} archivos bajo {Dir}",
+                extractedFileCount, extractPath);
         }
         catch (Exception ex)
         {
             await ActualizarDocAsync(docRef, new Dictionary<string, object>
             {
                 ["comando_estado"]    = "error",
-                ["comando_resultado"] = $"Error al extraer ZIP: {ex.Message}"
+                ["comando_resultado"] = $"Error al extraer ZIP ({bytes.Length} bytes descargados): {ex.Message}"
             }, ct);
             return;
         }
 
-        // 4. Script de actualización: debe ejecutarse FUERA del árbol de procesos del servicio.
-        // Si se lanza como hijo directo del .exe del servicio, al hacer "net stop CyberWatch"
-        // Windows suele terminar ese hijo (cmd.exe) antes de que llegue a "net start", y el
-        // servicio queda detenido hasta un reinicio manual.
+        // 4. Cabecera del log (evita problemas de caracteres en URL dentro del .bat)
         var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var scriptPath = Path.Combine(Path.GetTempPath(), "cw_update.bat");
         var logPath = Path.Combine(Path.GetTempPath(), "cw_update.log");
         var schtasksCleanupName = $"CyberWatch\\RemoteUpd_{Guid.NewGuid():N}";
+
+        var logHeader = BuildActualizacionLogHeader(
+            url, configVersion, bytes.Length, extractedFileCount, installDir, extractPath, serviceName, schtasksCleanupName);
+        await File.WriteAllTextAsync(logPath, logHeader, new UTF8Encoding(false), ct);
+
+        // 5. Script de actualización: debe ejecutarse FUERA del árbol de procesos del servicio.
+        var svcBatch = BatchEscapeSetValue(serviceName);
         File.WriteAllText(scriptPath,
             $"@echo off\r\n" +
             $"setlocal EnableDelayedExpansion\r\n" +
-            $"echo [%DATE% %TIME%] === INICIO ACTUALIZACION === >> \"{logPath}\"\r\n" +
-            $"echo [%DATE% %TIME%] Install dir: {installDir} >> \"{logPath}\"\r\n" +
-            $"echo [%DATE% %TIME%] Extract path: {extractPath} >> \"{logPath}\"\r\n" +
+            $"set \"CW_SVC={svcBatch}\"\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 1/8] Pausa 3s antes de detener el servicio... >> \"{logPath}\"\r\n" +
             $"timeout /t 3 /nobreak >nul\r\n" +
-            $"echo [%DATE% %TIME%] Deteniendo servicio CyberWatch... >> \"{logPath}\"\r\n" +
-            $"net stop CyberWatch >> \"{logPath}\" 2>&1\r\n" +
-            $"echo [%DATE% %TIME%] net stop exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
-            $"echo [%DATE% %TIME%] Matando CyberWatch.UserAgent.exe... >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 2/8] net stop \"%CW_SVC%\" ... >> \"{logPath}\"\r\n" +
+            $"net stop \"%CW_SVC%\" >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 2/8] net stop codigo=%ERRORLEVEL% >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 2/8] sc query \"%CW_SVC%\" (tras net stop) >> \"{logPath}\"\r\n" +
+            $"sc query \"%CW_SVC%\" >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 3/8] taskkill UserAgent (si sigue en memoria)... >> \"{logPath}\"\r\n" +
             $"taskkill /F /IM CyberWatch.UserAgent.exe /T >> \"{logPath}\" 2>&1\r\n" +
-            $"echo [%DATE% %TIME%] taskkill exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 3/8] taskkill codigo=%ERRORLEVEL% >> \"{logPath}\"\r\n" +
             $"timeout /t 3 /nobreak >nul\r\n" +
-            BatchWaitCyberWatchStopped(logPath) +
-            $"echo [%DATE% %TIME%] Copiando archivos... >> \"{logPath}\"\r\n" +
+            BatchWaitCyberWatchStopped(logPath, serviceName, faseEtiqueta: "[FASE 4/8]") +
+            $"echo [%DATE% %TIME%] [FASE 5/8] xcopy /E /I /Y extract -^> installDir >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] Origen: {extractPath} Destino: {installDir} >> \"{logPath}\"\r\n" +
             $"xcopy /E /I /Y \"{extractPath}\\*\" \"{installDir}\\\" >> \"{logPath}\" 2>&1\r\n" +
-            $"echo [%DATE% %TIME%] xcopy exitcode: %ERRORLEVEL% >> \"{logPath}\"\r\n" +
-            $"echo [%DATE% %TIME%] Pausa post-copia (liberar exe / AV)... >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 5/8] xcopy codigo=%ERRORLEVEL% >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 6/8] Pausa 6s post-copia (liberar exe / antivirus)... >> \"{logPath}\"\r\n" +
             $"timeout /t 6 /nobreak >nul\r\n" +
-            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch (reintentos net/sc/powershell)... >> \"{logPath}\"\r\n" +
-            BatchStartCyberWatchRetryBlock(logPath, "cw_try_start", "cw_start_ok", "cw_start_fail", maxTries: 15, delaySec: 5) +
+            $"echo [%DATE% %TIME%] [FASE 7/8] Arranque del servicio (net start / sc / PowerShell, hasta 15 intentos)... >> \"{logPath}\"\r\n" +
+            BatchStartCyberWatchRetryBlock(logPath, serviceName, "cw_try_start", "cw_start_ok", "cw_start_fail", maxTries: 15, delaySec: 5) +
             $":cw_start_fail\r\n" +
-            $"echo [%DATE% %TIME%] ERROR: no se pudo iniciar el servicio tras reintentos >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 7/8] ERROR: no se pudo iniciar el servicio tras reintentos >> \"{logPath}\"\r\n" +
             $"goto cw_update_cleanup\r\n" +
             $":cw_start_ok\r\n" +
-            $"echo [%DATE% %TIME%] Servicio CyberWatch iniciado OK >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 7/8] Servicio iniciado; verificacion sc query >> \"{logPath}\"\r\n" +
+            $"sc query \"%CW_SVC%\" >> \"{logPath}\" 2>&1\r\n" +
             $":cw_update_cleanup\r\n" +
+            $"echo [%DATE% %TIME%] [FASE 8/8] Limpieza (tarea schtasks, carpeta temp, zip, este bat) >> \"{logPath}\"\r\n" +
             $"echo [%DATE% %TIME%] === FIN ACTUALIZACION === >> \"{logPath}\"\r\n" +
             $"schtasks /Delete /TN \"{schtasksCleanupName}\" /F >> \"{logPath}\" 2>&1\r\n" +
             $"rd /s /q \"{extractPath}\"\r\n" +
             $"del \"{zipPath}\"\r\n" +
             $"del \"%~f0\"\r\n");
 
-        // 5. Lanzar el .bat vía tarea programada (proceso bajo el Programador de tareas, no hijo del servicio).
-        _logger.LogInformation("[Comando] Lanzando batch de actualización: {Path}", scriptPath);
+        // 6. Lanzar el .bat vía tarea programada (proceso bajo el Programador de tareas, no hijo del servicio).
+        _logger.LogInformation("[Comando][ActualizarAgente] Batch generado: {Script}, log: {Log}, tarea: {Task}", scriptPath, logPath, schtasksCleanupName);
         if (!TryLaunchBatchViaScheduledTask(scriptPath, schtasksCleanupName, out var schMsg))
         {
             _logger.LogWarning("[Comando] schtasks no pudo programar la actualización ({Msg}). Usando fallback cmd start.", schMsg);
             TryLaunchBatchDetachedFallback(scriptPath);
         }
 
-        _logger.LogInformation("[Comando] Script de actualización se aplicará en segundos. El servicio se reiniciará.");
+        _logger.LogInformation("[Comando][ActualizarAgente] Script programado; el servicio {Svc} se detendrá y volverá a iniciar.", serviceName);
 
-        // 6. Marcar estado antes de que el servicio se detenga
+        var resumenFirestore =
+            $"Listo para aplicar actualización.\n" +
+            $"- URL: {url}\n" +
+            $"- Versión en config/ciberseguridad: {(configVersion ?? "(sin campo version)")}\n" +
+            $"- ZIP descargado: {bytes.Length} bytes\n" +
+            $"- Archivos en paquete extraído: {extractedFileCount}\n" +
+            $"- Instalación: {installDir}\n" +
+            $"- Servicio Windows: {serviceName}\n" +
+            $"- Log local: {logPath}\n" +
+            $"El servicio se reiniciará en segundos; el detalle del batch quedará en cw_update.log.";
         await ActualizarDocAsync(docRef, new Dictionary<string, object>
         {
             ["comando_estado"]    = "reiniciando",
-            ["comando_resultado"] = $"Descargado desde {url}. El servicio se reiniciará en segundos."
+            ["comando_resultado"] = resumenFirestore
         }, ct);
     }
 
@@ -322,31 +376,45 @@ public class EjecutorTareasFirebaseService : BackgroundService
 
     private async Task EjecutarReinicioServicioAsync(DocumentReference docRef, CancellationToken ct)
     {
+        var serviceName = string.IsNullOrWhiteSpace(_app.ServiceName) ? "CyberWatch" : _app.ServiceName.Trim();
         var scriptPath = Path.Combine(Path.GetTempPath(), "cw_restart.bat");
         var logPath    = Path.Combine(Path.GetTempPath(), "cw_update.log");
         var schtasksCleanupName = $"CyberWatch\\RemoteRst_{Guid.NewGuid():N}";
+        var svcBatch = BatchEscapeSetValue(serviceName);
+
+        var reinicioHeader =
+            $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}Z] === Reinicio remoto CyberWatch (comando reiniciar_servicio) ===\r\n" +
+            $"Servicio Windows: {serviceName}\r\n" +
+            $"Tarea schtasks (cleanup): {schtasksCleanupName}\r\n" +
+            "---\r\n";
+        await File.AppendAllTextAsync(logPath, reinicioHeader, new UTF8Encoding(false), ct);
 
         File.WriteAllText(scriptPath,
             $"@echo off\r\n" +
             $"setlocal EnableDelayedExpansion\r\n" +
-            $"echo [%DATE% %TIME%] === REINICIO MANUAL === >> \"{logPath}\"\r\n" +
+            $"set \"CW_SVC={svcBatch}\"\r\n" +
+            $"echo [%DATE% %TIME%] [REINICIO 1/5] Pausa 3s >> \"{logPath}\"\r\n" +
             $"timeout /t 3 /nobreak >nul\r\n" +
-            $"echo [%DATE% %TIME%] Deteniendo servicio CyberWatch... >> \"{logPath}\"\r\n" +
-            $"net stop CyberWatch >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] [REINICIO 2/5] net stop \"%CW_SVC%\" >> \"{logPath}\"\r\n" +
+            $"net stop \"%CW_SVC%\" >> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] [REINICIO 2/5] codigo=%ERRORLEVEL% >> \"{logPath}\"\r\n" +
             $"timeout /t 3 /nobreak >nul\r\n" +
-            BatchWaitCyberWatchStopped(logPath) +
-            $"echo [%DATE% %TIME%] Iniciando servicio CyberWatch (reintentos)... >> \"{logPath}\"\r\n" +
-            BatchStartCyberWatchRetryBlock(logPath, "cw_rst_try", "cw_rst_ok", "cw_rst_fail", maxTries: 15, delaySec: 5) +
+            BatchWaitCyberWatchStopped(logPath, serviceName, faseEtiqueta: "[REINICIO 3/5]") +
+            $"echo [%DATE% %TIME%] [REINICIO 4/5] Arranque con reintentos >> \"{logPath}\"\r\n" +
+            BatchStartCyberWatchRetryBlock(logPath, serviceName, "cw_rst_try", "cw_rst_ok", "cw_rst_fail", maxTries: 15, delaySec: 5) +
             $":cw_rst_fail\r\n" +
-            $"echo [%DATE% %TIME%] ERROR: no se pudo iniciar el servicio tras reintentos >> \"{logPath}\"\r\n" +
+            $"echo [%DATE% %TIME%] [REINICIO 4/5] ERROR: sin arranque tras reintentos >> \"{logPath}\"\r\n" +
             $"goto cw_rst_end\r\n" +
             $":cw_rst_ok\r\n" +
+            $"echo [%DATE% %TIME%] [REINICIO 4/5] sc query tras arranque >> \"{logPath}\"\r\n" +
+            $"sc query \"%CW_SVC%\" >> \"{logPath}\" 2>&1\r\n" +
             $":cw_rst_end\r\n" +
+            $"echo [%DATE% %TIME%] [REINICIO 5/5] Limpieza tarea + borrar bat >> \"{logPath}\"\r\n" +
             $"echo [%DATE% %TIME%] === FIN REINICIO === >> \"{logPath}\"\r\n" +
             $"schtasks /Delete /TN \"{schtasksCleanupName}\" /F >> \"{logPath}\" 2>&1\r\n" +
             $"del \"%~f0\"\r\n");
 
-        _logger.LogInformation("[Comando] Lanzando batch de reinicio: {Path}", scriptPath);
+        _logger.LogInformation("[Comando][ReiniciarServicio] Batch {Path}, servicio={Svc}", scriptPath, serviceName);
         if (!TryLaunchBatchViaScheduledTask(scriptPath, schtasksCleanupName, out var schMsg))
         {
             _logger.LogWarning("[Comando] schtasks no pudo programar el reinicio ({Msg}). Usando fallback cmd start.", schMsg);
@@ -494,37 +562,78 @@ public class EjecutorTareasFirebaseService : BackgroundService
     /// <summary>
     /// Fragmento .bat: espera hasta ~90 s a que el servicio quede en Stopped (no depende del idioma de <c>sc query</c>).
     /// </summary>
-    private static string BatchWaitCyberWatchStopped(string logPath) =>
-        $"echo [%DATE% %TIME%] Esperando estado Stopped en SCM (PowerShell)... >> \"{logPath}\"\r\n" +
-        $"powershell -NoProfile -ExecutionPolicy Bypass -Command \"" +
-        $"for ($i=0; $i -lt 45; $i++) {{ " +
-        $"$s = (Get-Service -Name 'CyberWatch' -EA SilentlyContinue).Status; " +
-        $"if ($s -eq 'Stopped') {{ exit 0 }}; Start-Sleep -s 2 }}; exit 1\" " +
-        $">> \"{logPath}\" 2>&1\r\n" +
-        $"echo [%DATE% %TIME%] espera_stopped codigo=%ERRORLEVEL% >> \"{logPath}\"\r\n";
+    private static string BatchWaitCyberWatchStopped(string logPath, string serviceName, string faseEtiqueta)
+    {
+        var psName = EscapeForPowerShellSingleQuoted(serviceName);
+        return
+            $"echo [%DATE% %TIME%] {faseEtiqueta} Espera SCM: servicio \"%CW_SVC%\" debe quedar Stopped (hasta ~90s, sondeo cada 2s; codigo 0=OK)... >> \"{logPath}\"\r\n" +
+            $"powershell -NoProfile -ExecutionPolicy Bypass -Command \"" +
+            $"for ($i=0; $i -lt 45; $i++) {{ " +
+            $"$s = (Get-Service -Name '{psName}' -EA SilentlyContinue).Status; " +
+            $"if ($i %% 10 -eq 0) {{ Write-Output ('t=' + $i + ' status=' + $s) }}; " +
+            $"if ($s -eq 'Stopped') {{ exit 0 }}; Start-Sleep -s 2 }}; " +
+            $"Write-Output ('timeout: ultimo status=' + $s); exit 1\" " +
+            $">> \"{logPath}\" 2>&1\r\n" +
+            $"echo [%DATE% %TIME%] {faseEtiqueta} espera_stopped codigo=%ERRORLEVEL% >> \"{logPath}\"\r\n";
+    }
 
     /// <summary>
     /// Reintentos de arranque: <c>net start</c>, <c>sc start</c>, <c>Start-Service</c> (captura ERRORLEVEL fiable con delayed expansion).
     /// </summary>
     private static string BatchStartCyberWatchRetryBlock(
-        string logPath, string tryLabel, string okLabel, string failLabel, int maxTries, int delaySec) =>
-        $"set CW_START_TRIES=0\r\n" +
-        $":{tryLabel}\r\n" +
-        $"set /a CW_START_TRIES+=1\r\n" +
-        $"net start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
-        $"set CW_NS=!ERRORLEVEL!\r\n" +
-        $"echo [%DATE% %TIME%] intento !CW_START_TRIES! net start codigo=!CW_NS! >> \"{logPath}\"\r\n" +
-        $"if !CW_NS! equ 0 goto {okLabel}\r\n" +
-        $"sc start CyberWatch >> \"{logPath}\" 2>&1\r\n" +
-        $"set CW_NS=!ERRORLEVEL!\r\n" +
-        $"if !CW_NS! equ 0 goto {okLabel}\r\n" +
-        $"powershell -NoProfile -ExecutionPolicy Bypass -Command \"try {{ Start-Service -Name 'CyberWatch'; exit 0 }} catch {{ exit 1 }}\" >> \"{logPath}\" 2>&1\r\n" +
-        $"set CW_NS=!ERRORLEVEL!\r\n" +
-        $"if !CW_NS! equ 0 goto {okLabel}\r\n" +
-        $"if !CW_START_TRIES! geq {maxTries} goto {failLabel}\r\n" +
-        $"echo [%DATE% %TIME%] reintento en {delaySec}s... >> \"{logPath}\"\r\n" +
-        $"timeout /t {delaySec} /nobreak >nul\r\n" +
-        $"goto {tryLabel}\r\n";
+        string logPath, string serviceName, string tryLabel, string okLabel, string failLabel, int maxTries, int delaySec)
+    {
+        var psName = EscapeForPowerShellSingleQuoted(serviceName);
+        return
+            $"set CW_START_TRIES=0\r\n" +
+            $":{tryLabel}\r\n" +
+            $"set /a CW_START_TRIES+=1\r\n" +
+            $"echo [%DATE% %TIME%] intento !CW_START_TRIES!/{maxTries}: net start \"%CW_SVC%\" >> \"{logPath}\"\r\n" +
+            $"net start \"%CW_SVC%\" >> \"{logPath}\" 2>&1\r\n" +
+            $"set CW_NS=!ERRORLEVEL!\r\n" +
+            $"echo [%DATE% %TIME%] intento !CW_START_TRIES! net start codigo=!CW_NS! >> \"{logPath}\"\r\n" +
+            $"if !CW_NS! equ 0 goto {okLabel}\r\n" +
+            $"echo [%DATE% %TIME%] intento !CW_START_TRIES!/{maxTries}: sc start \"%CW_SVC%\" >> \"{logPath}\"\r\n" +
+            $"sc start \"%CW_SVC%\" >> \"{logPath}\" 2>&1\r\n" +
+            $"set CW_NS=!ERRORLEVEL!\r\n" +
+            $"if !CW_NS! equ 0 goto {okLabel}\r\n" +
+            $"echo [%DATE% %TIME%] intento !CW_START_TRIES!/{maxTries}: Start-Service PowerShell >> \"{logPath}\"\r\n" +
+            $"powershell -NoProfile -ExecutionPolicy Bypass -Command \"try {{ Start-Service -Name '{psName}'; exit 0 }} catch {{ Write-Output $_.Exception.Message; exit 1 }}\" >> \"{logPath}\" 2>&1\r\n" +
+            $"set CW_NS=!ERRORLEVEL!\r\n" +
+            $"if !CW_NS! equ 0 goto {okLabel}\r\n" +
+            $"if !CW_START_TRIES! geq {maxTries} goto {failLabel}\r\n" +
+            $"echo [%DATE% %TIME%] Sin exito en intento !CW_START_TRIES!; pausa {delaySec}s y reintento... >> \"{logPath}\"\r\n" +
+            $"timeout /t {delaySec} /nobreak >nul\r\n" +
+            $"goto {tryLabel}\r\n";
+    }
+
+    private static string EscapeForPowerShellSingleQuoted(string s) => s.Replace("'", "''", StringComparison.Ordinal);
+
+    /// <summary>Valor seguro en <c>set "CW_SVC=..."</c> en batch (sin comillas dobles).</summary>
+    private static string BatchEscapeSetValue(string serviceName) =>
+        serviceName.Replace("\"", "", StringComparison.Ordinal);
+
+    private static string BuildActualizacionLogHeader(
+        string url,
+        string? configVersion,
+        long zipBytes,
+        int extractedFileCount,
+        string installDir,
+        string extractPath,
+        string serviceName,
+        string schtasksTaskName) =>
+        $"=== CyberWatch — actualización remota (trazas) ===\r\n" +
+        $"UTC inicio cabecera: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}Z\r\n" +
+        $"Origen del paquete (config/ciberseguridad.url_descarga):\r\n{url}\r\n" +
+        $"Versión publicada (config/ciberseguridad.version): {(configVersion ?? "(no definida en Firestore)")}\r\n" +
+        $"Tamaño del ZIP descargado: {zipBytes} bytes\r\n" +
+        $"Archivos en carpeta extraída: {extractedFileCount}\r\n" +
+        $"Carpeta temporal de extracción: {extractPath}\r\n" +
+        $"Directorio de instalación (destino xcopy): {installDir}\r\n" +
+        $"Nombre del servicio Windows: {serviceName}\r\n" +
+        $"Tarea Programador (cleanup al final): {schtasksTaskName}\r\n" +
+        $"---\r\n" +
+        $"A continuación: salida del script batch (fases numeradas).\r\n\r\n";
 
     /// <summary>
     /// Segundo intento si schtasks falla (políticas, etc.): <c>start</c> deja un cmd independiente.

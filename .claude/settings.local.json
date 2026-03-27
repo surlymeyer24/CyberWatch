@@ -33,7 +33,8 @@
       "Bash(find /c/Users/Usr/Documents/CyberWatch -name *update* -type f)",
       "Bash(grep -rn \"config.*ciberseguridad\\\\|version.*listener\\\\|Listen.*config\" C:UsersUsrDocumentsCyberWatchCyberWatch.Service --include=*.cs)",
       "Bash(find /c/Users/Usr/Documents/CyberWatch/publish_output -type f -name *.json)",
-      "Bash(CyberWatch.TestMalware/CyberWatch.TestMalware.csproj:*)"
+      "Bash(CyberWatch.TestMalware/CyberWatch.TestMalware.csproj:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

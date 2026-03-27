@@ -126,6 +126,19 @@ Al terminar de implementar una funcionalidad o fix, SIEMPRE recordar al usuario:
 
 ---
 
+## Realizar únicamente el cambio solicitado
+
+Cuando el usuario pida un cambio, realizarlo exactamente y nada más.
+
+**Reglas:**
+- No modificar otras partes del código no relacionadas con el requerimiento
+- No refactorizar, no cambiar estilos globales ni estructuras existentes
+- No agregar comentarios, docstrings ni mejoras "de paso"
+- Si algo más debería cambiarse, sugerirlo primero — nunca hacerlo sin aprobación
+- Mantener intacto todo lo que no esté directamente relacionado con el requerimiento
+
+---
+
 ## Publish self-contained: incluir archivos de configuración
 
 **Error cometido:** Al generar el comando `dotnet publish` con `PublishSingleFile`,

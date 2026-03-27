@@ -68,7 +68,8 @@ public class ServicioCyberWatch : BackgroundService
                     var reporte = _evaluador.Evaluar(snapshot, nombreProceso);
                     if (reporte != null)
                     {
-                        reporte.RutaEjecutable = ResolverRutaEjecutable(reporte.NombreProceso);
+                        reporte.RutaEjecutable = _rastreador.ObtenerRutaEjecutableCacheada(reporte.NombreProceso)
+                                                ?? ResolverRutaEjecutable(reporte.NombreProceso);
                         var eventosProceso = snapshot.Count(e =>
                             string.Equals(e.NombreProceso, nombreProceso, StringComparison.OrdinalIgnoreCase));
 
