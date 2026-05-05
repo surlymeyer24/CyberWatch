@@ -1,154 +1,184 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using CyberWatch.Service.Config;
 using CyberWatch.Service.Detection;
 using CyberWatch.Service.Models;
+using Microsoft.Diagnostics.Tracing.Parsers;
+using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using Microsoft.Diagnostics.Tracing.Session;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CyberWatch.Service.Monitoring;
 
 public class MonitorActividadArchivos
 {
-    private readonly RastreadorProcesos _rastreador;
     private readonly IEvaluadorAmenazas _evaluador;
+    private readonly UmbralesSettings _umbrales;
     private readonly ILogger<MonitorActividadArchivos> _logger;
-    private List<FileSystemWatcher> _watchers = new();
+    private List<string> _pathsMonitoreados = new();
+    private TraceEventSession? _session;
+
+    // Deduplicación de escrituras: solo un evento por (proceso+archivo) por ciclo
+    private readonly ConcurrentDictionary<string, byte> _escriturasVistas = new(StringComparer.OrdinalIgnoreCase);
 
     public ConcurrentBag<EventoArchivo> Eventos { get; private set; } = new();
 
-    /// <summary>
-    /// Toma un snapshot de los eventos actuales y limpia el bag para el próximo ciclo.
-    /// </summary>
     public List<EventoArchivo> TomarSnapshotYLimpiar()
     {
         var actual = Eventos;
         Eventos = new ConcurrentBag<EventoArchivo>();
+        _escriturasVistas.Clear();
         return actual.ToList();
     }
 
-    public MonitorActividadArchivos(RastreadorProcesos rastreador, IEvaluadorAmenazas evaluador, ILogger<MonitorActividadArchivos> logger)
+    public MonitorActividadArchivos(
+        IEvaluadorAmenazas evaluador,
+        IOptions<UmbralesSettings> umbrales,
+        ILogger<MonitorActividadArchivos> logger)
     {
-        _rastreador = rastreador;
-        _evaluador  = evaluador;
-        _logger     = logger;
+        _evaluador = evaluador;
+        _umbrales  = umbrales.Value;
+        _logger    = logger;
     }
 
     public void IniciarMonitorizacion()
     {
-        var unidadesFijas = DriveInfo.GetDrives()
-            .Where(d => d.IsReady && d.DriveType == DriveType.Fixed)
-            .ToList();
+        var driveSistema = Path.GetPathRoot(
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows)) ?? @"C:\";
 
-        // Identificar el drive del sistema (ej. C:\) para monitorear solo C:\Users\
-        var driveSistema = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
-
-        var pathsAMonitorear = new List<string>();
-        foreach (var unidad in unidadesFijas)
+        foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed))
         {
-            if (string.Equals(unidad.Name, driveSistema, StringComparison.OrdinalIgnoreCase))
-            {
-                // Drive del sistema: solo C:\Users\ (donde están documentos, escritorio, descargas)
-                var usersPath = Path.Combine(unidad.Name, "Users");
-                if (Directory.Exists(usersPath))
-                    pathsAMonitorear.Add(usersPath);
-            }
+            if (string.Equals(drive.Name, driveSistema, StringComparison.OrdinalIgnoreCase))
+                _pathsMonitoreados.Add(Path.Combine(drive.Name, "Users"));
             else
-            {
-                // Otros drives fijos: raíz completa
-                pathsAMonitorear.Add(unidad.Name);
-            }
+                _pathsMonitoreados.Add(drive.Name);
         }
 
-        _logger.LogInformation("[Monitor] Paths a monitorear: {Paths}", string.Join(", ", pathsAMonitorear));
+        _logger.LogInformation("[Monitor] Paths a monitorear: {Paths}", string.Join(", ", _pathsMonitoreados));
 
-        foreach (var path in pathsAMonitorear)
+        // Cerrar sesión previa si el proceso crasheó sin limpiarla
+        if (TraceEventSession.GetActiveSessionNames().Contains("CyberWatchETW"))
         {
-            try
-            {
-                var watcher = new FileSystemWatcher(path)
-                {
-                    IncludeSubdirectories = true,
-                    EnableRaisingEvents   = true,
-                    NotifyFilter          = NotifyFilters.FileName | NotifyFilters.LastWrite,
-                    InternalBufferSize    = 262144 // 256KB
-                };
-                _watchers.Add(watcher);
-
-                watcher.Created += OnCreado;
-                watcher.Deleted += OnEliminado;
-                watcher.Renamed += OnRenombrado;
-                watcher.Changed += OnModificado;
-                watcher.Error   += (s, e) => _logger.LogError(e.GetException(), "[Monitor] Error en watcher de {Path}", path);
-
-                _logger.LogInformation("[Monitor] Watcher iniciado en {Path}", path);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[Monitor] No se pudo crear watcher en {Path}", path);
-            }
+            _logger.LogWarning("[Monitor] Sesión ETW previa encontrada, cerrando...");
+            using var vieja = new TraceEventSession("CyberWatchETW");
+            vieja.Stop();
         }
+
+        _session = new TraceEventSession("CyberWatchETW");
+        _session.EnableKernelProvider(
+            KernelTraceEventParser.Keywords.FileIOInit |
+            KernelTraceEventParser.Keywords.FileIO);
+
+        _session.Source.Kernel.FileIOCreate += OnFileCreado;
+        _session.Source.Kernel.FileIOWrite  += OnFileEscrito;
+        _session.Source.Kernel.FileIORename += OnFileRenombrado;
+
+        // Process() es bloqueante — corre en hilo background
+        var hilo = new Thread(() =>
+        {
+            try { _session.Source.Process(); }
+            catch (Exception ex) { _logger.LogError(ex, "[Monitor] Error en sesión ETW"); }
+        })
+        { IsBackground = true, Name = "ETW-FileMonitor" };
+
+        hilo.Start();
+        _logger.LogInformation("[Monitor] ETW iniciado");
     }
 
     public void DetenerMonitorizacion()
     {
-        foreach (var watcher in _watchers)
-        {
-            watcher.EnableRaisingEvents = false;
-            watcher.Dispose();
-        }
-        _watchers.Clear();
+        _session?.Stop();
+        _session?.Dispose();
+        _session = null;
     }
 
-    private void OnCreado(object sender, FileSystemEventArgs e)
+    private bool DebeMonitorear(string? path)
     {
-        var proceso = _rastreador.ObtenerProcesoPorArchivo(e.FullPath);
-        _logger.LogInformation("[Monitor] CREADO: {Ruta} | Proceso: {Proceso}", e.FullPath, proceso);
-        Eventos.Add(new EventoArchivo
-        {
-            NombreProceso = proceso,
-            RutaArchivo   = e.FullPath,
-            FechaHora     = DateTime.Now,
-            TipoEvento    = TipoEvento.Creacion
-        });
+        if (string.IsNullOrEmpty(path)) return false;
+        return _pathsMonitoreados.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
     }
 
-    private void OnModificado(object sender, FileSystemEventArgs e)
+    private bool EsProcesoExcluido(string processName)
     {
-        Eventos.Add(new EventoArchivo
-        {
-            NombreProceso = _rastreador.ObtenerProcesoPorArchivo(e.FullPath),
-            RutaArchivo   = e.FullPath,
-            FechaHora     = DateTime.Now,
-            TipoEvento    = TipoEvento.Escritura
-        });
+        var sinExt = processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? processName[..^4] : processName;
+        return _umbrales.ProcesosExcluidos.Any(p =>
+            string.Equals(p.Trim(), processName, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(p.Trim(), sinExt,      StringComparison.OrdinalIgnoreCase));
     }
 
-    private void OnEliminado(object sender, FileSystemEventArgs e)
+    private static string? ObtenerRutaEjecutable(int pid)
     {
-        Eventos.Add(new EventoArchivo
-        {
-            NombreProceso = _rastreador.ObtenerProcesoPorArchivo(e.FullPath),
-            RutaArchivo   = e.FullPath,
-            FechaHora     = DateTime.Now,
-            TipoEvento    = TipoEvento.Eliminacion
-        });
+        try { return Process.GetProcessById(pid).MainModule?.FileName; }
+        catch { return null; }
     }
 
-    public void OnRenombrado(object sender, RenamedEventArgs e)
+    private void OnFileCreado(FileIOCreateTraceData e)
     {
-        var proceso = _rastreador.ObtenerProcesoPorArchivo(e.FullPath);
-        _logger.LogInformation("[Monitor] RENOMBRADO: {RutaVieja} -> {RutaNueva} | Proceso: {Proceso}", e.OldFullPath, e.FullPath, proceso);
+        if (!DebeMonitorear(e.FileName) || EsProcesoExcluido(e.ProcessName)) return;
+
+        var ruta = ObtenerRutaEjecutable(e.ProcessID);
+        _logger.LogInformation("[Monitor] CREADO: {Ruta} | Proceso: {Proceso}", e.FileName, e.ProcessName);
 
         var evento = new EventoArchivo
         {
-            NombreProceso = proceso,
-            RutaArchivo   = e.FullPath,
-            FechaHora     = DateTime.Now,
-            TipoEvento    = TipoEvento.Renombrado
+            NombreProceso  = e.ProcessName,
+            RutaEjecutable = ruta,
+            RutaArchivo    = e.FileName,
+            FechaHora      = DateTime.Now,
+            TipoEvento     = TipoEvento.Creacion
         };
 
         if (_evaluador.TieneExtensionSospechosa(evento))
         {
             evento.TipoEvento = TipoEvento.ExtensionSospechosa;
-            _logger.LogWarning("[Monitor] EXTENSION SOSPECHOSA detectada: {Ruta}", e.FullPath);
+            _logger.LogWarning("[Monitor] EXTENSION SOSPECHOSA detectada: {Ruta}", e.FileName);
+        }
+
+        Eventos.Add(evento);
+    }
+
+    private void OnFileEscrito(FileIOReadWriteTraceData e)
+    {
+        if (!DebeMonitorear(e.FileName) || EsProcesoExcluido(e.ProcessName)) return;
+
+        // Un evento por (proceso+archivo) por ciclo para no inflar el conteo
+        var clave = $"{e.ProcessName}|{e.FileName}";
+        if (!_escriturasVistas.TryAdd(clave, 0)) return;
+
+        var ruta = ObtenerRutaEjecutable(e.ProcessID);
+
+        Eventos.Add(new EventoArchivo
+        {
+            NombreProceso  = e.ProcessName,
+            RutaEjecutable = ruta,
+            RutaArchivo    = e.FileName,
+            FechaHora      = DateTime.Now,
+            TipoEvento     = TipoEvento.Escritura
+        });
+    }
+
+    private void OnFileRenombrado(FileIOInfoTraceData e)
+    {
+        if (!DebeMonitorear(e.FileName) || EsProcesoExcluido(e.ProcessName)) return;
+
+        var ruta = ObtenerRutaEjecutable(e.ProcessID);
+        _logger.LogInformation("[Monitor] RENOMBRADO: {Ruta} | Proceso: {Proceso}", e.FileName, e.ProcessName);
+
+        var evento = new EventoArchivo
+        {
+            NombreProceso  = e.ProcessName,
+            RutaEjecutable = ruta,
+            RutaArchivo    = e.FileName,
+            FechaHora      = DateTime.Now,
+            TipoEvento     = TipoEvento.Renombrado
+        };
+
+        if (_evaluador.TieneExtensionSospechosa(evento))
+        {
+            evento.TipoEvento = TipoEvento.ExtensionSospechosa;
+            _logger.LogWarning("[Monitor] EXTENSION SOSPECHOSA detectada: {Ruta}", e.FileName);
         }
 
         Eventos.Add(evento);

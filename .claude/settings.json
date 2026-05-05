@@ -5,7 +5,9 @@
       "Bash(\"c:/Users/Usr/Documents/CyberWatch/CyberWatch.UserAgent/bin/Debug/net8.0-windows10.0.19041.0/cyberwatch_machine_id.txt\")",
       "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.Service/CyberWatch.Service.csproj --no-restore -v quiet)",
       "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.Shared/CyberWatch.Shared.csproj --no-restore -v quiet)",
-      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.UserAgent/CyberWatch.UserAgent.csproj --no-restore -v quiet)"
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build CyberWatch.UserAgent/CyberWatch.UserAgent.csproj --no-restore -v quiet)",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\Usr\\\\Documents\\\\CyberWatch && dotnet build CyberWatch.Service/CyberWatch.Service.csproj 2>&1\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\Usr\\\\Documents\\\\CyberWatch''; dotnet build CyberWatch.Service/CyberWatch.Service.csproj 2>&1\")"
     ]
   }
 }

@@ -96,13 +96,16 @@ public static class LectorHistorialSqlite
                 ? info
                 : (nombreCarpeta, string.Empty);
 
-            // Filtrar por dominio empresa si está configurado
-            if (!string.IsNullOrEmpty(dominioEmpresa))
+            // Filtrar por dominio empresa si está configurado:
+            // - Incluir perfiles con email del dominio
+            // - Incluir perfiles sin email (Edge sin cuenta, etc.)
+            // - Excluir perfiles con email personal (Gmail, etc.)
+            if (!string.IsNullOrEmpty(dominioEmpresa) && !string.IsNullOrEmpty(email))
             {
                 if (!email.EndsWith($"@{dominioEmpresa}", StringComparison.OrdinalIgnoreCase))
                 {
-                    logger.LogDebug("[Historial] Saltando perfil {Carpeta} ({Email}): no es cuenta empresa",
-                        nombreCarpeta, string.IsNullOrEmpty(email) ? "sin email" : email);
+                    logger.LogDebug("[Historial] Saltando perfil {Carpeta} ({Email}): cuenta personal",
+                        nombreCarpeta, email);
                     continue;
                 }
             }
@@ -124,9 +127,15 @@ public static class LectorHistorialSqlite
         var localStatePath = Path.Combine(basePath, "Local State");
         if (!File.Exists(localStatePath)) return resultado;
 
+        // Copiar a temp para evitar file lock de Chrome/Edge
+        var tempDir = ObtenerDirectorioTemp();
+        var tempLocalState = Path.Combine(tempDir, $"LocalState_{Path.GetFileName(basePath)}");
+
         try
         {
-            using var stream = File.OpenRead(localStatePath);
+            File.Copy(localStatePath, tempLocalState, overwrite: true);
+
+            using var stream = File.OpenRead(tempLocalState);
             using var doc = JsonDocument.Parse(stream);
 
             if (!doc.RootElement.TryGetProperty("profile", out var profileEl)) return resultado;
@@ -147,8 +156,12 @@ public static class LectorHistorialSqlite
         }
         catch (Exception ex)
         {
-            // Local State puede estar bloqueado si el navegador está abierto; no es crítico
+            // Local State puede estar bloqueado; no es crítico
             _ = ex;
+        }
+        finally
+        {
+            EliminarArchivoSeguro(tempLocalState);
         }
 
         return resultado;

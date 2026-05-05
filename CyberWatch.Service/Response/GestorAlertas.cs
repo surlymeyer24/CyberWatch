@@ -7,10 +7,13 @@ public class GestorAlertas : IGestorAlertas
     public void Alertar(ReporteAmenaza reporte)
     {
         var extInfo = reporte.ExtensionDetectada != null ? $" ({reporte.ExtensionDetectada})" : "";
+        var entInfo = reporte.EntropiaAplicadaComoBonus && reporte.EntropiaMuestra.HasValue
+            ? $" | Entropia(bonus)={reporte.EntropiaMuestra:F2}"
+            : "";
         var mensaje = $"[{reporte.FechaHora}] Proceso: {reporte.NombreProceso} | " +
                       $"Escrituras: {reporte.EscriturasSospechosas} | " +
                       $"Renombrados: {reporte.RenombradosSospechosas} | " +
-                      $"Extension: {reporte.ExtensionSospechosa}{extInfo}";
+                      $"Extension: {reporte.ExtensionSospechosa}{extInfo}{entInfo}";
 
         File.AppendAllText("cyberwatch.log", mensaje + Environment.NewLine);
     }

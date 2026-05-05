@@ -34,6 +34,18 @@ service cloud.firestore {
         allow read: if true;
         allow write: if false;
       }
+
+      // Servicios SCM no incluidos en la whitelist base (CyberWatch.Service escribe; dashboard lee)
+      match /servicios_desconocidos/{svcId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      // Tabla TCP monitoreada (CyberWatch.Service escribe vía Admin SDK; dashboard lee)
+      match /puertos_abiertos/{docId} {
+        allow read: if true;
+        allow write: if false;
+      }
     }
 
     // Configuración global: solo backend (o manual) escribe; dashboard lee
@@ -49,6 +61,16 @@ service cloud.firestore {
     }
 
     match /{path=**}/logs_amenazas/{logId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{path=**}/servicios_desconocidos/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{path=**}/puertos_abiertos/{docId} {
       allow read: if true;
       allow write: if false;
     }

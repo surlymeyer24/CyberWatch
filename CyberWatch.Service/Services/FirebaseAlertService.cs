@@ -115,7 +115,9 @@ public class FirebaseAlertService : IFirebaseAlertService
                 RutaCuarentena = cuarentena?.RutaCuarentena,
                 CuarentenaError = cuarentena?.Error,
                 EventosArchivoEnCiclo = eventosArchivoEnCiclo < 0 ? 0 : eventosArchivoEnCiclo,
-                Resumen = resumen
+                Resumen = resumen,
+                EntropiaMuestra = reporte.EntropiaMuestra,
+                EntropiaAplicadaComoBonus = reporte.EntropiaAplicadaComoBonus
             };
 
             await colLogs.AddAsync(log, ct).ConfigureAwait(false);
@@ -139,7 +141,9 @@ public class FirebaseAlertService : IFirebaseAlertService
                 CuarentenaError        = cuarentena?.Error,
                 Origen                 = "CyberWatch.Service",
                 MachineId              = machineId,
-                Hostname               = Environment.MachineName
+                Hostname               = Environment.MachineName,
+                EntropiaMuestra           = reporte.EntropiaMuestra,
+                EntropiaAplicadaComoBonus = reporte.EntropiaAplicadaComoBonus
             };
 
             await col.AddAsync(alerta, ct).ConfigureAwait(false);
@@ -166,6 +170,8 @@ public class FirebaseAlertService : IFirebaseAlertService
             partes.Add($"ruta={reporte.RutaEjecutable}");
         if (eventosArchivoEnCiclo >= 0)
             partes.Add($"eventosArchivoCiclo={eventosArchivoEnCiclo}");
+        if (reporte.EntropiaAplicadaComoBonus)
+            partes.Add($"entropia={reporte.EntropiaMuestra:F2}");
         if (cuarentena != null)
             partes.Add(cuarentena.Exitosa ? "cuarentena=OK" : $"cuarentena=fallo:{cuarentena.Error}");
         partes.Add(deduplicada ? "alertaFirestore=omitida_dedup_10min" : "alertaFirestore=creada");

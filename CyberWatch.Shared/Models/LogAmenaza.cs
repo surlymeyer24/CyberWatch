@@ -62,4 +62,11 @@ public class LogAmenaza
     /// </summary>
     [FirestoreProperty("resumen")]
     public string Resumen { get; set; } = "";
+
+    /// <summary>Entropía de Shannon (bits/byte, 0–8) sobre muestra del archivo representativo, si aplica.</summary>
+    [FirestoreProperty("entropiaMuestra")]
+    public double? EntropiaMuestra { get; set; }
+
+    [FirestoreProperty("entropiaAplicadaComoBonus")]
+    public bool EntropiaAplicadaComoBonus { get; set; }
 }

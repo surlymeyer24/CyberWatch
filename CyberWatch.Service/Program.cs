@@ -8,6 +8,7 @@ using CyberWatch.Service.Monitoring;
 using CyberWatch.Service.Response;
 using CyberWatch.Service.Services;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 // Modo consola: versión desplegada (misma lectura que en runtime: appsettings.json junto al .exe)
@@ -65,11 +66,12 @@ IHost host = Host.CreateDefaultBuilder(args)
         servicios.Configure<UmbralesSettings>(context.Configuration.GetSection(UmbralesSettings.SectionName));
 
         // ── Detección y respuesta ──────────────────────────────────────────────
+        servicios.AddSingleton<ICalculadorEntropia, CalculadorEntropia>();
+        servicios.AddSingleton<IValidadorFirmaEjecutable, ValidadorFirmaEjecutableNet>();
         servicios.AddSingleton<IEvaluadorAmenazas, EvaluadorAmenazas>();
         servicios.AddSingleton<IGestorAlertas, GestorAlertas>();
         servicios.AddSingleton<ILiquidadorProcesos, LiquidarProcesos>();
         servicios.AddSingleton<ICuarentena, ServicioCuarentena>();
-        servicios.AddSingleton<RastreadorProcesos>();
         servicios.AddSingleton<MonitorActividadArchivos>();
 
         // ── Firebase ───────────────────────────────────────────────────────────
@@ -85,6 +87,12 @@ IHost host = Host.CreateDefaultBuilder(args)
         servicios.AddHostedService<EjecutorTareasFirebaseService>();
         servicios.AddHostedService<RegistradorTareaUsuarioService>();
         servicios.AddHostedService<SecurityEventMonitorService>();
+        servicios.AddHostedService<ServiciosDesconocidosService>();
+        servicios.AddSingleton<ConfigRedFirestoreService>();
+        servicios.AddSingleton<IConfigRedCache>(sp => sp.GetRequiredService<ConfigRedFirestoreService>());
+        servicios.AddHostedService(sp => sp.GetRequiredService<ConfigRedFirestoreService>());
+        servicios.AddHostedService<PuertosAbiertosMonitorService>();
+        servicios.AddHostedService<MonitorServiciosFirmaDigitalService>();
     })
     .Build();
 

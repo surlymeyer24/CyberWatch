@@ -3,10 +3,13 @@ using Google.Cloud.Firestore;
 namespace CyberWatch.Shared.Models;
 
 /// <summary>
-/// Documento de la colección "alertas". Cubre dos tipos:
+/// Documento de la colección "alertas". Cubre distintos orígenes:
 /// - ransomware: NombreProceso, EscriturasSospechosas, RenombradosSospechosas, ExtensionSospechosa
 /// - evento de seguridad: Tipo, EventoId, Descripcion, Detalle
-/// Los campos específicos del otro tipo quedan en null y no afectan las queries.
+/// - servicios no-base: Tipo = <c>servicio_desconocido_nuevo</c>, NombreServicio, opcionalmente flags en Detalle
+/// - firma Authenticode: Tipo = <c>servicio_sin_firma_valida</c>, NombreServicio, SubjectFirma, RazonFirma, RutaEjecutableOriginal
+/// - puertos TCP: Tipo = valores en <see cref="PuertoTipoAlerta"/> + PuertoLocal, PidProceso, Descripcion
+/// Los campos no usados por cada tipo quedan en null.
 /// </summary>
 [FirestoreData]
 public class Alerta
@@ -69,4 +72,35 @@ public class Alerta
 
     [FirestoreProperty("detalle")]
     public string? Detalle { get; set; }
+
+    // ── Monitor de servicios no-base (ServiciosDesconocidosService) ───────────
+
+    /// <summary>Cuando <see cref="Tipo"/> es <c>servicio_desconocido_nuevo</c>, nombre corto SCM del servicio.</summary>
+    [FirestoreProperty("nombreServicio")]
+    public string? NombreServicio { get; set; }
+
+    // ── Monitor de puertos (PuertosAbiertosMonitorService) ─────────────────────
+
+    /// <summary>Puerto local cuando <see cref="Tipo"/> es <see cref="PuertoTipoAlerta"/>.</summary>
+    [FirestoreProperty("puertoLocal")]
+    public int? PuertoLocal { get; set; }
+
+    /// <summary>PID del proceso dueño del socket.</summary>
+    [FirestoreProperty("pidProceso")]
+    public int? PidProceso { get; set; }
+
+    /// <summary>Solo alertas ransomware: entropía de muestra si el bonus aplicó.</summary>
+    [FirestoreProperty("entropiaMuestra")]
+    public double? EntropiaMuestra { get; set; }
+
+    [FirestoreProperty("entropiaAplicadaComoBonus")]
+    public bool EntropiaAplicadaComoBonus { get; set; }
+
+    /// <summary>Cuando <see cref="Tipo"/> es firma de servicio: sujeto del certificado de firma (si hubo lectura).</summary>
+    [FirestoreProperty("subjectFirma")]
+    public string? SubjectFirma { get; set; }
+
+    /// <summary>Razón codificada: sin_firma, cadena_invalida, error_lectura.</summary>
+    [FirestoreProperty("razonFirma")]
+    public string? RazonFirma { get; set; }
 }

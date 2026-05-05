@@ -11,6 +11,7 @@ namespace CyberWatch.Service.Models
     public class EventoArchivo
     {
         public string NombreProceso { get; set; } = string.Empty;
+        public string? RutaEjecutable { get; set; }
         public string RutaArchivo { get; set; } = string.Empty;
         public DateTime FechaHora { get; set; }
         public TipoEvento TipoEvento { get; set; }

@@ -10,6 +10,10 @@
     <Copy SourceFiles="$(ProjectDir)install.bat" DestinationFolder="$(PublishDir)" />
   </Target>
   <ItemGroup>
+    <InternalsVisibleTo Include="CyberWatch.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CyberWatch.Shared\CyberWatch.Shared.csproj" />
   </ItemGroup>
 
@@ -20,7 +24,15 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
     <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.7" />
     <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Data\servicios_base_windows.json" />
+    <EmbeddedResource Include="Data\puertos_base_windows.json" />
+    <EmbeddedResource Include="Data\puertos_sospechosos.json" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,6 @@
+{
+  "puertos_globales_permitidos": [80, 443, 3389, 1433],
+  "procesos_red_excluidos": ["chrome.exe", "sqlservr.exe", "CyberWatch.Service.exe"],
+  "bloqueo_estricto_activo": false,
+  "ultima_modificacion": "2026-05-05T14:45:20Z"
+}

@@ -27,9 +27,20 @@ public class FirebaseSettings
     public string? CredentialJson { get; set; }
 
     public string FirestoreCollectionAlertas    { get; set; } = "alertas";
+    /// <summary>Subcolección por máquina: servicios no incluidos en la whitelist base (upsert por ciclo).</summary>
+    public string FirestoreCollectionServiciosDesconocidos { get; set; } = "servicios_desconocidos";
+    /// <summary>Subcolección por máquina: sockets TCP (y eventualmente UDP) monitoreados (upsert por ciclo).</summary>
+    public string FirestoreCollectionPuertosAbiertos { get; set; } = "puertos_abiertos";
     /// <summary>Subcolección por máquina: historial completo de detecciones ransomware (incluye repeticiones).</summary>
     public string FirestoreCollectionLogsAmenazas { get; set; } = "logs_amenazas";
     public string FirestoreColeccionInstancias  { get; set; } = "cyberwatch_instancias";
+
+    /// <summary>Colección del documento de configuración de red (whitelist/remotes).</summary>
+    public string FirestoreConfigRedCollection { get; set; } = "config";
+
+    /// <summary>ID del documento (<c>config/red</c>).</summary>
+    public string FirestoreConfigRedDocumentId { get; set; } = "red";
+
     public int    IntervaloRegistroInstanciaMinutos { get; set; } = 5;
 
     /// <summary>
