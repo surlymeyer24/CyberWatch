@@ -91,8 +91,12 @@ IHost host = Host.CreateDefaultBuilder(args)
         servicios.AddSingleton<ConfigRedFirestoreService>();
         servicios.AddSingleton<IConfigRedCache>(sp => sp.GetRequiredService<ConfigRedFirestoreService>());
         servicios.AddHostedService(sp => sp.GetRequiredService<ConfigRedFirestoreService>());
+        servicios.AddSingleton<ConfigServiciosFirestoreService>();
+        servicios.AddSingleton<IConfigServiciosCache>(sp => sp.GetRequiredService<ConfigServiciosFirestoreService>());
+        servicios.AddHostedService(sp => sp.GetRequiredService<ConfigServiciosFirestoreService>());
         servicios.AddHostedService<PuertosAbiertosMonitorService>();
         servicios.AddHostedService<MonitorServiciosFirmaDigitalService>();
+        servicios.AddHostedService<MonitorServiciosAnomalos>();
     })
     .Build();
 

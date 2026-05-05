@@ -137,7 +137,18 @@ Arquitectura resumida: **CyberWatch.Service** corre en **Session 0** como **SYST
 - **Alertas Firestore:** `**tipo**` = `**servicio_sin_firma_valida**` (`**ServicioFirmaDigitalTipoAlerta**`); `**razonFirma**` `sin_firma` o `cadena_invalida`; `**subjectFirma**` si se leyó certificado; `**rutaEjecutableOriginal**` = binario verificado; dedup por `tipo` + `nombreServicio` + ventana `**DedupFirmaServiciosHoras**`.
 - **Sin Firebase:** solo log de advertencia cuando correspondería alertar.
 
-### 2.10.2 Monitor de puertos TCP IPv4 (`PuertosAbiertosMonitorService`)
+### 2.10.2 Monitor de servicios anómalos / política remota (`MonitorServiciosAnomalos`, iteración 7)
+
+- **Objetivo:** después de la firma local (iteración 6), aplicar **política centralizada** en Firestore: exclusiones por nombre SCM y lista blanca por **hash SHA-256** del PE, sin redesplegar agentes.
+- **Activo solo si** `**Umbrales:MonitorServiciosAnomalosHabilitado**` es **true** (por defecto **false**). **Intervalo** por defecto **60 min** (`**IntervaloServiciosAnomalosMinutos**`).
+- **Config remota:** documento **`config/servicios`** (`**ConfigServiciosFirestoreService**`, mismo patrón Listen que `config/red`): `nombres_excluidos`, `hashes_permitidos`, `ultima_modificacion`. Modelo [ConfigServiciosDocument](../CyberWatch.Shared/Models/ConfigServiciosDocument.cs); ejemplo [config-servicios.example.json](config-servicios.example.json). IDs: `Firebase:FirestoreConfigRedCollection` + `Firebase:FirestoreConfigServiciosDocumentId` (default `servicios`).
+- **Enumeración:** WMI `**Win32_Service**` con `State='Running'`; **PathName** → `**ServicioWindowsPaths**` (igual filosofía que otros monitores de servicio).
+- **Firma:** `**X509Certificate.CreateFromSignedFile**` → `**X509Certificate2**` → `**Verify()`** (sin cadena completa CRL como en iteración 6); si **Verify** es **true**, el servicio se considera OK en esta pasada.
+- **Si la firma no verifica:** SHA-256 del archivo (streaming); si el hash está en la caché remota **o** el nombre SCM está en `nombres_excluidos`, **no** se alerta; si no, alerta `**servicio_no_firmado**` (`**ServicioAnomaloTipoAlerta.NoFirmado**`), campo `**hashEjecutableSha256**`, `**rutaEjecutableOriginal**`, dedup `**DedupServiciosAnomalosHoras**` con `tipo` + `nombreServicio` + `fechaHora`.
+- **Coexistencia con iteración 6:** pueden solaparse alertas para el mismo servicio; en producción conviene habilitar solo uno u operar con umbrales/dashboard distintos.
+- **Persistencia:** `**IFirebaseAlertService.AgregarAlertaInstanciaAsync**` tras dedup en el monitor (misma subcolección `alertas`).
+
+### 2.10.3 Monitor de puertos TCP IPv4 (`PuertosAbiertosMonitorService`)
 
 - **Objetivo:** visibilidad de sockets **TCP IPv4** que Windows tiene registrados (equivalente operativo a **netstat** / tabla extendida), **sin** escaneo activo de red.
 - **API:** `iphlpapi.dll` → `GetExtendedTcpTable` con clase `TCP_TABLE_OWNER_PID_ALL`; conversión de puertos desde orden de red y dirección IPv4 textual.
@@ -229,7 +240,7 @@ Arquitectura resumida: **CyberWatch.Service** corre en **Session 0** como **SYST
 | Colección / ruta                    | Función                                                                                                                                   |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `cyberwatch_instancias/{machineId}` | Documento maestro de endpoint: red, geo IP, GPS, BitLocker, firewall, admins, estado `sc`, comandos, capturas, historial, alertas_sistema |
-| `.../alertas`                       | Alertas de ransomware (servicio), **SecurityEventMonitor**, **servicios no-base** (`servicio_desconocido_nuevo`), **firma de servicio** (`servicio_sin_firma_valida`), **puertos** (`puerto_sospechoso`, `puerto_nuevo_entre_ciclos`) |
+| `.../alertas`                       | Alertas de ransomware (servicio), **SecurityEventMonitor**, **servicios no-base** (`servicio_desconocido_nuevo`), **firma de servicio** (`servicio_sin_firma_valida`), **servicio anómalo** (`servicio_no_firmado`), **puertos** (`puerto_sospechoso`, `puerto_nuevo_entre_ciclos`) |
 | `.../servicios_desconocidos`       | Servicios SCM fuera de whitelist base (merge por ciclo; campo `esNuevo`)                                                                  |
 | `.../puertos_abiertos`              | Filas TCP IPv4 monitorizadas (`Listen` y opcionalmente `Established`; flags `esSospechoso`, `esNuevo`)                                   |
 | `.../logs_amenazas`                 | Auditoría detallada de cada ciclo con detección (incluye dedup)                                                                           |
@@ -274,7 +285,7 @@ Arquitectura resumida: **CyberWatch.Service** corre en **Session 0** como **SYST
 
 - `**Firebase`:** proyecto, bucket, credenciales, intervalo de registro, nombres de colecciones, `DominioEmpresa` opcional.
 - `**CyberWatch`:** `Version`, `ServiceName`.
-- `**Umbrales`:** umbrales numéricos, extensiones, carpetas protegidas, cuarentena, exclusiones de proceso, `MaxAmenazasPorCiclo`, `CooldownLiquidacionMinutos`, **`IntervaloServiciosMinutos`**, **`ServiciosExcluidos`**, **`SuprimirAlertasPrimerCicloServicios`** (monitor de servicios no-base), **`FirmaServiciosHabilitado`**, **`IntervaloFirmaServiciosHoras`**, **`FirmaServiciosSoloNoBase`**, **`ServiciosFirmaExcluidos`**, **`DedupFirmaServiciosHoras`** (monitor de firma Authenticode), **`IntervaloPuertosMinutos`**, **`PuertosExcluidos`**, **`SuprimirAlertasPrimerCicloPuertos`**, **`MonitorearSoloListen`** (monitor de puertos TCP), **`EntropiaHabilitada`**, **`EntropiaTamanoMuestraKb`**, **`EntropiaUmbralAlto`**, **`EntropiaBonusPuntos`**, **`ExtensionesEntropiaAltaEsperada`**, **`EntropiaRequierePatronRansomware`**, **`EntropiaMinimoPuntuacionBase`** (refuerzo opcional en `EvaluadorAmenazas`).
+- `**Umbrales`:** umbrales numéricos, extensiones, carpetas protegidas, cuarentena, exclusiones de proceso, `MaxAmenazasPorCiclo`, `CooldownLiquidacionMinutos`, **`IntervaloServiciosMinutos`**, **`ServiciosExcluidos`**, **`SuprimirAlertasPrimerCicloServicios`** (monitor de servicios no-base), **`FirmaServiciosHabilitado`**, **`IntervaloFirmaServiciosHoras`**, **`FirmaServiciosSoloNoBase`**, **`ServiciosFirmaExcluidos`**, **`DedupFirmaServiciosHoras`** (monitor de firma Authenticode), **`MonitorServiciosAnomalosHabilitado`**, **`IntervaloServiciosAnomalosMinutos`**, **`DedupServiciosAnomalosHoras`** (monitor iteración 7 / `config/servicios`), **`IntervaloPuertosMinutos`**, **`PuertosExcluidos`**, **`SuprimirAlertasPrimerCicloPuertos`**, **`MonitorearSoloListen`** (monitor de puertos TCP), **`EntropiaHabilitada`**, **`EntropiaTamanoMuestraKb`**, **`EntropiaUmbralAlto`**, **`EntropiaBonusPuntos`**, **`ExtensionesEntropiaAltaEsperada`**, **`EntropiaRequierePatronRansomware`**, **`EntropiaMinimoPuntuacionBase`** (refuerzo opcional en `EvaluadorAmenazas`).
 
 ---
 

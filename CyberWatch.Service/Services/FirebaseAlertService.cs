@@ -155,6 +155,31 @@ public class FirebaseAlertService : IFirebaseAlertService
         }
     }
 
+    public async Task AgregarAlertaInstanciaAsync(Alerta alerta, CancellationToken ct = default)
+    {
+        var machineId = GetMachineId();
+        if (_db == null || string.IsNullOrEmpty(machineId))
+            return;
+
+        try
+        {
+            if (string.IsNullOrEmpty(alerta.MachineId))
+                alerta.MachineId = machineId;
+            if (string.IsNullOrEmpty(alerta.Hostname))
+                alerta.Hostname = Environment.MachineName;
+
+            var col = _db.Collection(_settings.FirestoreColeccionInstancias)
+                .Document(machineId)
+                .Collection(_settings.FirestoreCollectionAlertas);
+
+            await col.AddAsync(alerta, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo añadir alerta instancia (tipo={Tipo})", alerta.Tipo);
+        }
+    }
+
     private static string ConstruirResumen(ReporteAmenaza reporte, ResultadoCuarentena? cuarentena, int eventosArchivoEnCiclo, bool deduplicada)
     {
         var partes = new List<string>

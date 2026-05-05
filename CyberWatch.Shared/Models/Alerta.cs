@@ -8,6 +8,7 @@ namespace CyberWatch.Shared.Models;
 /// - evento de seguridad: Tipo, EventoId, Descripcion, Detalle
 /// - servicios no-base: Tipo = <c>servicio_desconocido_nuevo</c>, NombreServicio, opcionalmente flags en Detalle
 /// - firma Authenticode: Tipo = <c>servicio_sin_firma_valida</c>, NombreServicio, SubjectFirma, RazonFirma, RutaEjecutableOriginal
+/// - servicio anómalo (política remota): Tipo = <c>servicio_no_firmado</c>, HashEjecutableSha256 si aplica
 /// - puertos TCP: Tipo = valores en <see cref="PuertoTipoAlerta"/> + PuertoLocal, PidProceso, Descripcion
 /// Los campos no usados por cada tipo quedan en null.
 /// </summary>
@@ -103,4 +104,8 @@ public class Alerta
     /// <summary>Razón codificada: sin_firma, cadena_invalida, error_lectura.</summary>
     [FirestoreProperty("razonFirma")]
     public string? RazonFirma { get; set; }
+
+    /// <summary>Cuando <see cref="Tipo"/> es <c>servicio_no_firmado</c>: SHA-256 del binario (hex minúsculas).</summary>
+    [FirestoreProperty("hashEjecutableSha256")]
+    public string? HashEjecutableSha256 { get; set; }
 }

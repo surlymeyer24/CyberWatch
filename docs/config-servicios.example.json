@@ -1,0 +1,7 @@
+{
+  "nombres_excluidos": ["MiAgenteInterno", "BuildRunner"],
+  "hashes_permitidos": [
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "ultima_modificacion": "2026-05-05T18:00:00Z"
+}

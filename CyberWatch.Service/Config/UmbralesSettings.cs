@@ -142,4 +142,15 @@ public class UmbralesSettings
 
     /// <summary>Ventana de deduplicación de alertas <c>servicio_sin_firma_valida</c> (horas).</summary>
     public int DedupFirmaServiciosHoras { get; set; } = 24;
+
+    // ── Servicios anómalos / política remota config/servicios (iteración 7) ───
+
+    /// <summary>Si es false (por defecto), no se ejecuta el monitor WMI + Verify + hash.</summary>
+    public bool MonitorServiciosAnomalosHabilitado { get; set; }
+
+    /// <summary>Intervalo entre pasadas completas del escaneo de servicios anómalos (minutos).</summary>
+    public int IntervaloServiciosAnomalosMinutos { get; set; } = 60;
+
+    /// <summary>Ventana de deduplicación de alertas <c>servicio_no_firmado</c> (horas).</summary>
+    public int DedupServiciosAnomalosHoras { get; set; } = 24;
 }

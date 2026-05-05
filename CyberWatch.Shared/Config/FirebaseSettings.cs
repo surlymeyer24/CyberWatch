@@ -41,6 +41,9 @@ public class FirebaseSettings
     /// <summary>ID del documento (<c>config/red</c>).</summary>
     public string FirestoreConfigRedDocumentId { get; set; } = "red";
 
+    /// <summary>ID del documento (<c>config/servicios</c>): exclusiones SCM y hashes permitidos.</summary>
+    public string FirestoreConfigServiciosDocumentId { get; set; } = "servicios";
+
     public int    IntervaloRegistroInstanciaMinutos { get; set; } = 5;
 
     /// <summary>

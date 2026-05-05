@@ -12,8 +12,9 @@ Este directorio incluye un archivo **`iteracion-N-pasos.md`** por cada hito mayo
 | [iteracion-4-pasos.md](iteracion-4-pasos.md) | Monitor de puertos TCP IPv4 (`GetExtendedTcpTable`, whitelist / sospechosos, subcolección `puertos_abiertos`, alertas). |
 | [iteracion-5-pasos.md](iteracion-5-pasos.md) | Entropía Shannon como refuerzo del score (opcional, `EntropiaHabilitada`); documento Firestore `config/red` con listener, unión con whitelist embebida y exclusión de procesos para alertas de puertos. |
 | [iteracion-6-pasos.md](iteracion-6-pasos.md) | Validación **Authenticode** en binarios de servicios **Running** (`MonitorServiciosFirmaDigitalService`, cadena X.509); tipo `servicio_sin_firma_valida`; configurable por `Umbrales`; evolución posible WinVerifyTrust / AuthenticodeCheck. |
+| [iteracion-7-pasos.md](iteracion-7-pasos.md) | `MonitorServiciosAnomalos` (WMI `Win32_Service`), `X509Certificate2.Verify()`; si falla → SHA-256; documento **`config/servicios`** (listener) con `nombres_excluidos` y `hashes_permitidos`; alerta `servicio_no_firmado`; campo `hashEjecutableSha256`. |
 
-Las iteraciones **1 a 6** están cerradas en código (salvo mejoras puntuales).
+Las iteraciones **1 a 7** están cerradas en código (salvo mejoras puntuales).
 
 El **orden** sigue dependencias técnicas, no necesariamente la fecha exacta de cada commit.
 
