@@ -95,7 +95,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
                 var uaInfo = "";
                 if (File.Exists(exePath))
                 {
-                    uaInfo = AsegurarYEjecutarTareaUserAgent(exePath);
+                    uaInfo = LanzadorUserAgent.RelanzarDesdeTarea(exePath, _logger);
                 }
                 else
                 {
@@ -113,6 +113,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
                     ["comando_resultado"] = $"Versión instalada: {versionInstalada} (desde config del .exe). {uaInfo}\n\nLog batch:\n{logContent}"
                 }, stoppingToken);
                 _logger.LogInformation("[Comando] Actualización previa completada. Versión actual: {Version}", versionInstalada);
+                WatchdogPauseLock.Eliminar();
             }
         }
         catch (Exception ex)
@@ -305,6 +306,8 @@ public class EjecutorTareasFirebaseService : BackgroundService
             url, configVersion, bytes.Length, extractedFileCount, installDir, extractPath, serviceName, schtasksCleanupName);
         await File.WriteAllTextAsync(logPath, logHeader, new UTF8Encoding(false), ct);
 
+        WatchdogPauseLock.Crear("actualizar_agente");
+
         // 5. Script de actualización: debe ejecutarse FUERA del árbol de procesos del servicio.
         var svcBatch = BatchEscapeSetValue(serviceName);
         File.WriteAllText(scriptPath,
@@ -340,6 +343,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $":cw_update_cleanup\r\n" +
             $"echo [%DATE% %TIME%] [FASE 8/8] Limpieza (tarea schtasks, carpeta temp, zip, este bat) >> \"{logPath}\"\r\n" +
             $"echo [%DATE% %TIME%] === FIN ACTUALIZACION === >> \"{logPath}\"\r\n" +
+            $"del /F /Q \"{WatchdogPauseLock.LockPath}\" >> \"{logPath}\" 2>&1\r\n" +
             $"schtasks /Delete /TN \"{schtasksCleanupName}\" /F >> \"{logPath}\" 2>&1\r\n" +
             $"rd /s /q \"{extractPath}\"\r\n" +
             $"del \"{zipPath}\"\r\n" +
@@ -389,6 +393,8 @@ public class EjecutorTareasFirebaseService : BackgroundService
             "---\r\n";
         await File.AppendAllTextAsync(logPath, reinicioHeader, new UTF8Encoding(false), ct);
 
+        WatchdogPauseLock.Crear("reiniciar_servicio");
+
         File.WriteAllText(scriptPath,
             $"@echo off\r\n" +
             $"setlocal EnableDelayedExpansion\r\n" +
@@ -411,6 +417,7 @@ public class EjecutorTareasFirebaseService : BackgroundService
             $":cw_rst_end\r\n" +
             $"echo [%DATE% %TIME%] [REINICIO 5/5] Limpieza tarea + borrar bat >> \"{logPath}\"\r\n" +
             $"echo [%DATE% %TIME%] === FIN REINICIO === >> \"{logPath}\"\r\n" +
+            $"del /F /Q \"{WatchdogPauseLock.LockPath}\" >> \"{logPath}\" 2>&1\r\n" +
             $"schtasks /Delete /TN \"{schtasksCleanupName}\" /F >> \"{logPath}\" 2>&1\r\n" +
             $"del \"%~f0\"\r\n");
 
@@ -437,43 +444,6 @@ public class EjecutorTareasFirebaseService : BackgroundService
     {
         try { await docRef.UpdateAsync(campos); }
         catch (Exception ex) { _logger.LogWarning(ex, "No se pudo actualizar el documento."); }
-    }
-
-    private string AsegurarYEjecutarTareaUserAgent(string exePath)
-    {
-        var result = "";
-        try
-        {
-            // Generar XML y crear la tarea con /F (fuerza creación aunque exista)
-            var xml = RegistradorTareaUsuarioService.GenerarXmlTarea(exePath);
-            var xmlPath = Path.Combine(Path.GetTempPath(), "cyberwatch_useragent_task.xml");
-            File.WriteAllText(xmlPath, xml, System.Text.Encoding.Unicode);
-
-            try
-            {
-                _logger.LogInformation("Registrando tarea UserAgent (forzado)...");
-                var (creado, msgCreate) = EjecutarProceso("schtasks",
-                    $"/Create /TN \"CyberWatch\\UserAgent\" /XML \"{xmlPath}\" /F");
-                _logger.LogInformation("schtasks /Create: ok={Ok}, output={Msg}", creado, msgCreate);
-                result += creado ? "Tarea registrada OK. " : $"Tarea no registrada: {msgCreate}. ";
-            }
-            finally
-            {
-                File.Delete(xmlPath);
-            }
-
-            _logger.LogInformation("Ejecutando tarea UserAgent...");
-            var (ejecutado, msgRun) = EjecutarProceso("schtasks",
-                "/Run /TN \"CyberWatch\\UserAgent\"");
-            _logger.LogInformation("schtasks /Run: ok={Ok}, output={Msg}", ejecutado, msgRun);
-            result += ejecutado ? "UserAgent iniciado OK." : $"UserAgent no iniciado: {msgRun}.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error al asegurar/ejecutar tarea UserAgent.");
-            result += $"Error: {ex.Message}";
-        }
-        return result;
     }
 
     /// <summary>
@@ -659,22 +629,6 @@ public class EjecutorTareasFirebaseService : BackgroundService
                 WorkingDirectory = Path.GetTempPath()
             });
         }
-    }
-
-    private static (bool success, string output) EjecutarProceso(string fileName, string args)
-    {
-        var info = new ProcessStartInfo(fileName, args)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            UseShellExecute = false,
-            CreateNoWindow  = true
-        };
-        using var proc = Process.Start(info);
-        var stdout = proc?.StandardOutput.ReadToEnd() ?? "";
-        var stderr = proc?.StandardError.ReadToEnd() ?? "";
-        proc?.WaitForExit();
-        return (proc?.ExitCode == 0, $"{stdout}{stderr}".Trim());
     }
 
     private static string? GetStr(Dictionary<string, object> d, string key) =>

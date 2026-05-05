@@ -171,6 +171,14 @@ Arquitectura resumida: **CyberWatch.Service** corre en **Session 0** como **SYST
   - `**{"tipo":"amenaza","proceso":"..."}**` — notificación al UserAgent para disparar captura contextual.
   - `**{"tipo":"ping"}**` — keepalive periódico (aprox. cada 20 s) para mantener la conexión viva.
 
+#### 2.11.1 Auto-Protección / Anti-Tampering (iteración 8)
+
+- **Recuperación SCM:** `**install.bat**` ejecuta `**sc failure CyberWatch reset= 0 actions= restart/5000/restart/5000/restart/5000**` tras crear o reconfigurar el servicio (antes de `net start`).
+- **Lock compartido:** `**C:\ProgramData\CyberWatch\cyberwatch.updating**` (`**WatchdogPauseLock**`). Lo crea `**EjecutorTareasFirebaseService**` antes de generar los batch de **`actualizar_agente`** y **`reiniciar_servicio`**; los `.bat` lo borran en la fase de limpieza. TTL lógico **15 min** para ignorar locks huérfanos. Tras reconciliar `comando_estado=reiniciando` al arrancar, se llama a `**Eliminar()**` si aplica.
+- **Watchdog en Service:** si no hay clientes en el pipe y han pasado **>60 s** desde la última actividad de conexión/desconexión, y el lock no está activo → `**LanzadorUserAgent.RelanzarDesdeTarea**` (`schtasks /Create /F` + `/Run` sobre `CyberWatch\UserAgent`). Bucle de comprobación cada **10 s**; logs con prefijo `**[Watchdog]**`.
+- **Watchdog en UserAgent (`PipClientService`):** si el pipe falla de forma continuada **>30 s** y el lock no está activo → `**ServiceController.Start("CyberWatch")**` en try/catch silencioso (sin administrador suele ser acceso denegado).
+- **Fuera de alcance:** hardening kernel/DACL contra terminación del proceso.
+
 ### 2.12 Logging del Service
 
 - **Consola** (útil en depuración).

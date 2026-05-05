@@ -46,6 +46,9 @@ if %errorLevel% equ 0 (
     sc.exe create CyberWatch binPath= "%INSTALL_DIR%\CyberWatch.Service.exe" start= auto
     echo       Service creado.
 )
+:: Recuperación nativa (SCM): si el proceso muere, reinicio a los 5 s (hasta 3 veces)
+sc.exe failure CyberWatch reset= 0 actions= restart/5000/restart/5000/restart/5000
+echo       Recuperacion nativa configurada (sc failure).
 net start CyberWatch
 echo       Service iniciado.
 

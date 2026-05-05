@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Runtime.Versioning;
+using CyberWatch.Shared.Helpers;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
@@ -19,6 +20,10 @@ public class AgentePipeServerService : BackgroundService
 
     private readonly ConcurrentDictionary<Guid, StreamWriter> _clientes = new();
     private readonly ILogger<AgentePipeServerService> _logger;
+    private readonly object _watchdogSync = new();
+    private DateTime _ultimaActividadUtc = DateTime.UtcNow;
+
+    private static readonly TimeSpan WatchdogSinCliente = TimeSpan.FromSeconds(60);
 
     public AgentePipeServerService(ILogger<AgentePipeServerService> logger)
     {
@@ -48,6 +53,8 @@ public class AgentePipeServerService : BackgroundService
     {
         _logger.LogInformation("Named Pipe server iniciado: {Pipe}", NombrePipe);
 
+        _ = WatchdogUserAgentAsync(stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             NamedPipeServerStream? pipe = null;
@@ -55,6 +62,8 @@ public class AgentePipeServerService : BackgroundService
             {
                 pipe = CrearPipeServer();
                 await pipe.WaitForConnectionAsync(stoppingToken);
+
+                MarcarActividadPipe();
 
                 var id = Guid.NewGuid();
                 var writer = new StreamWriter(pipe) { AutoFlush = false };
@@ -106,7 +115,55 @@ public class AgentePipeServerService : BackgroundService
             _clientes.TryRemove(id, out _);
             try { writer.Dispose(); } catch { }
             pipe.Dispose();
+            MarcarActividadPipe();
             _logger.LogDebug("UserAgent desconectado del pipe (id: {Id}).", id);
+        }
+    }
+
+    private void MarcarActividadPipe()
+    {
+        lock (_watchdogSync)
+            _ultimaActividadUtc = DateTime.UtcNow;
+    }
+
+    private async Task WatchdogUserAgentAsync(CancellationToken ct)
+    {
+        const string nombreExe = "CyberWatch.UserAgent.exe";
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
+
+                if (WatchdogPauseLock.Activo())
+                    continue;
+
+                bool vacio;
+                TimeSpan sinActividad;
+                lock (_watchdogSync)
+                {
+                    vacio = _clientes.IsEmpty;
+                    sinActividad = DateTime.UtcNow - _ultimaActividadUtc;
+                }
+
+                if (!vacio || sinActividad <= WatchdogSinCliente)
+                    continue;
+
+                var exePath = Path.Combine(AppContext.BaseDirectory, nombreExe);
+                _logger.LogWarning(
+                    "[Watchdog] Sin cliente en el pipe durante {Seg}s; relanzando UserAgent.",
+                    (int)sinActividad.TotalSeconds);
+
+                LanzadorUserAgent.RelanzarDesdeTarea(exePath, _logger);
+
+                lock (_watchdogSync)
+                    _ultimaActividadUtc = DateTime.UtcNow;
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Watchdog] Error en bucle de vigilancia del UserAgent.");
+            }
         }
     }
 
